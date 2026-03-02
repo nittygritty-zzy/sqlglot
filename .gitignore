@@ -151,3 +151,6 @@ data/
 
 # Validation output
 validation_output/
+
+# Training data output
+training_data_output/
