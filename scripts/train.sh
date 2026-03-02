@@ -3,7 +3,9 @@
 #
 # Usage:
 #   bash scripts/train.sh                    # Full training (CUDA GPU recommended)
+#   bash scripts/train.sh --mlx              # Train with MLX-LM (Apple Silicon)
 #   bash scripts/train.sh --smoke-test       # Quick smoke test (works on MPS/CPU)
+#   bash scripts/train.sh --smoke-test --mlx # Smoke test with MLX-LM
 #   bash scripts/train.sh --generate-only    # Only regenerate training data
 set -euo pipefail
 
@@ -24,6 +26,7 @@ DATA_DIR="training_data_output"
 GOLDEN_PAIRS="validation_output/golden_pairs_consolidated.jsonl"
 SMOKE_TEST=false
 GENERATE_ONLY=false
+USE_MLX=false
 
 for arg in "$@"; do
     case $arg in
@@ -32,6 +35,9 @@ for arg in "$@"; do
             ;;
         --generate-only)
             GENERATE_ONLY=true
+            ;;
+        --mlx)
+            USE_MLX=true
             ;;
     esac
 done
@@ -43,6 +49,10 @@ if $SMOKE_TEST; then
     GRAD_ACCUM=4
     OUTPUT_DIR="/tmp/ft_smoke_test"
     DATA_DIR="/tmp/ft_smoke_data"
+fi
+
+if $USE_MLX; then
+    OUTPUT_DIR="${OUTPUT_DIR}_mlx"
 fi
 
 # ── Step 1: Generate training data ──
@@ -83,24 +93,47 @@ fi
 echo ""
 echo "=== Starting Fine-tuning ==="
 echo "  Model: $MODEL_NAME"
-echo "  Batch size: $BATCH_SIZE × $GRAD_ACCUM (grad accum)"
 echo "  Epochs: $NUM_EPOCHS"
 echo "  Max seq length: $MAX_SEQ_LENGTH"
 echo "  Output: $OUTPUT_DIR"
 
-python -m finetuning.train \
-    --model-name "$MODEL_NAME" \
-    --train-data "$DATA_DIR/train.jsonl" \
-    --dev-data "$DATA_DIR/dev.jsonl" \
-    --max-seq-length "$MAX_SEQ_LENGTH" \
-    --per-device-train-batch-size "$BATCH_SIZE" \
-    --gradient-accumulation-steps "$GRAD_ACCUM" \
-    --num-epochs "$NUM_EPOCHS" \
-    --output-dir "$OUTPUT_DIR"
+if $USE_MLX; then
+    echo "  Backend: MLX-LM (Apple Silicon)"
+    echo "  Batch size: $BATCH_SIZE"
 
-echo ""
-echo "=== Training Complete ==="
-echo "  Adapter saved to: $OUTPUT_DIR/final"
-echo ""
-echo "To merge adapter into base model:"
-echo "  python -m finetuning.train --merge --output-dir $OUTPUT_DIR"
+    python -m finetuning.train_mlx \
+        --model-name "$MODEL_NAME" \
+        --train-data "$DATA_DIR/train.jsonl" \
+        --dev-data "$DATA_DIR/dev.jsonl" \
+        --max-seq-length "$MAX_SEQ_LENGTH" \
+        --batch-size "$BATCH_SIZE" \
+        --num-epochs "$NUM_EPOCHS" \
+        --output-dir "$OUTPUT_DIR"
+
+    echo ""
+    echo "=== Training Complete ==="
+    echo "  Adapter saved to: $OUTPUT_DIR/adapters"
+    echo ""
+    echo "To fuse adapter into base model:"
+    echo "  python -m finetuning.train_mlx --fuse --output-dir $OUTPUT_DIR"
+else
+    echo "  Backend: Transformers + PEFT"
+    echo "  Batch size: $BATCH_SIZE × $GRAD_ACCUM (grad accum)"
+
+    python -m finetuning.train \
+        --model-name "$MODEL_NAME" \
+        --train-data "$DATA_DIR/train.jsonl" \
+        --dev-data "$DATA_DIR/dev.jsonl" \
+        --max-seq-length "$MAX_SEQ_LENGTH" \
+        --per-device-train-batch-size "$BATCH_SIZE" \
+        --gradient-accumulation-steps "$GRAD_ACCUM" \
+        --num-epochs "$NUM_EPOCHS" \
+        --output-dir "$OUTPUT_DIR"
+
+    echo ""
+    echo "=== Training Complete ==="
+    echo "  Adapter saved to: $OUTPUT_DIR/final"
+    echo ""
+    echo "To merge adapter into base model:"
+    echo "  python -m finetuning.train --merge --output-dir $OUTPUT_DIR"
+fi
