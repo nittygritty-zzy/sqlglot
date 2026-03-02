@@ -387,7 +387,6 @@ class Parser(metaclass=_Parser):
     }
 
     STRUCT_TYPE_TOKENS = {
-        TokenType.FILE,
         TokenType.NESTED,
         TokenType.OBJECT,
         TokenType.STRUCT,
@@ -635,6 +634,7 @@ class Parser(metaclass=_Parser):
         TokenType.ESCAPE,
         TokenType.FALSE,
         TokenType.FIRST,
+        TokenType.FILE,
         TokenType.FILTER,
         TokenType.FINAL,
         TokenType.FORMAT,
@@ -1186,7 +1186,8 @@ class Parser(metaclass=_Parser):
             exp.SampleProperty, this=self._match_text_seq("BY") and self._parse_bitwise()
         ),
         "SECURE": lambda self: self.expression(exp.SecureProperty),
-        "SECURITY": lambda self: self._parse_security(),
+        "SECURITY": lambda self: self._parse_sql_security(),
+        "SQL SECURITY": lambda self: self._parse_sql_security(),
         "SET": lambda self: self.expression(exp.SetProperty, multi=False),
         "SETTINGS": lambda self: self._parse_settings_property(),
         "SHARING": lambda self: self._parse_property_assignment(exp.SharingProperty),
@@ -2534,11 +2535,6 @@ class Parser(metaclass=_Parser):
         if self._match_text_seq("COMPOUND", "SORTKEY"):
             return self._parse_sortkey(compound=True)
 
-        if self._match_text_seq("SQL", "SECURITY"):
-            return self.expression(
-                exp.SqlSecurityProperty,
-                this=self._match_texts(self.SECURITY_PROPERTY_KEYWORDS) and self._prev.text.upper(),
-            )
         if self._match_text_seq("PARAMETER", "STYLE", "PANDAS"):
             return self.expression(exp.ParameterStyleProperty, this="PANDAS")
 
@@ -2624,11 +2620,11 @@ class Parser(metaclass=_Parser):
             exp.FallbackProperty, no=no, protection=self._match_text_seq("PROTECTION")
         )
 
-    def _parse_security(self) -> t.Optional[exp.SecurityProperty]:
-        if self._match_texts(("NONE", "DEFINER", "INVOKER")):
-            security_specifier = self._prev.text.upper()
-            return self.expression(exp.SecurityProperty, this=security_specifier)
-        return None
+    def _parse_sql_security(self) -> exp.SqlSecurityProperty:
+        return self.expression(
+            exp.SqlSecurityProperty,
+            this=self._match_texts(self.SECURITY_PROPERTY_KEYWORDS) and self._prev.text.upper(),
+        )
 
     def _parse_settings_property(self) -> exp.SettingsProperty:
         return self.expression(
@@ -6505,7 +6501,9 @@ class Parser(metaclass=_Parser):
             this = self._parse_select_or_expression(alias=alias)
 
         return self._parse_limit(
-            self._parse_order(self._parse_having_max(self._parse_respect_or_ignore_nulls(this)))
+            self._parse_respect_or_ignore_nulls(
+                self._parse_order(self._parse_having_max(self._parse_respect_or_ignore_nulls(this)))
+            )
         )
 
     def _parse_schema(self, this: t.Optional[exp.Expr] = None) -> t.Optional[exp.Expr]:
@@ -7658,7 +7656,9 @@ class Parser(metaclass=_Parser):
             first = False
 
         partition, order = self._parse_partition_and_order()
-        kind = self._match_set((TokenType.ROWS, TokenType.RANGE)) and self._prev.text
+        kind = (
+            self._match_set((TokenType.ROWS, TokenType.RANGE)) or self._match_text_seq("GROUPS")
+        ) and self._prev.text
 
         if kind:
             self._match(TokenType.BETWEEN)

@@ -1452,6 +1452,24 @@ class TestDuckDB(Validator):
             exp.Localtimestamp
         )
 
+        self.validate_identity(
+            "SELECT SUM(x) OVER (ORDER BY x GROUPS BETWEEN 1 PRECEDING AND CURRENT ROW) FROM t"
+        )
+
+        self.validate_identity("SELECT file[:256] FROM GLOB('*')").selects[0].this.assert_is(
+            exp.Column
+        )
+        self.validate_identity("SELECT file[256] FROM GLOB('*')").selects[0].this.assert_is(
+            exp.Column
+        )
+
+        self.validate_identity(
+            "SELECT LAST_VALUE(x ORDER BY x IGNORE NULLS) OVER (ORDER BY x) FROM t"
+        )
+        self.validate_identity(
+            "SELECT LAST_VALUE(x ORDER BY x RESPECT NULLS) OVER (ORDER BY x) FROM t"
+        )
+
     def test_array_index(self):
         with self.assertLogs(helper_logger) as cm:
             self.validate_all(

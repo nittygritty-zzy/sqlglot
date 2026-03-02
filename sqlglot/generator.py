@@ -207,7 +207,6 @@ class Generator(metaclass=_Generator):
         exp.SafeFunc: lambda self, e: f"SAFE.{self.sql(e, 'this')}",
         exp.SampleProperty: lambda self, e: f"SAMPLE BY {self.sql(e, 'this')}",
         exp.SecureProperty: lambda *_: "SECURE",
-        exp.SecurityProperty: lambda self, e: f"SECURITY {self.sql(e, 'this')}",
         exp.SetConfigProperty: lambda self, e: self.sql(e, "this"),
         exp.SetProperty: lambda _, e: f"{'MULTI' if e.args.get('multi') else ''}SET",
         exp.SettingsProperty: lambda self, e: f"SETTINGS{self.seg('')}{(self.expressions(e))}",
@@ -257,6 +256,10 @@ class Generator(metaclass=_Generator):
     # Whether ignore nulls is inside the agg or outside.
     # FIRST(x IGNORE NULLS) OVER vs FIRST (x) IGNORE NULLS OVER
     IGNORE_NULLS_IN_FUNC = False
+
+    # Whether IGNORE NULLS is placed before ORDER BY in the agg.
+    # FIRST(x IGNORE NULLS ORDER BY y) vs FIRST(x ORDER BY y IGNORE NULLS)
+    IGNORE_NULLS_BEFORE_ORDER = True
 
     # Whether locking reads (i.e. SELECT ... FOR UPDATE/SHARE) are supported
     LOCKING_READS_SUPPORTED = False
@@ -663,7 +666,6 @@ class Generator(metaclass=_Generator):
         exp.SampleProperty: exp.Properties.Location.POST_SCHEMA,
         exp.SchemaCommentProperty: exp.Properties.Location.POST_SCHEMA,
         exp.SecureProperty: exp.Properties.Location.POST_CREATE,
-        exp.SecurityProperty: exp.Properties.Location.POST_SCHEMA,
         exp.SerdeProperties: exp.Properties.Location.POST_SCHEMA,
         exp.Set: exp.Properties.Location.POST_SCHEMA,
         exp.SettingsProperty: exp.Properties.Location.POST_SCHEMA,
@@ -674,7 +676,7 @@ class Generator(metaclass=_Generator):
         exp.TriggerProperties: exp.Properties.Location.POST_EXPRESSION,
         exp.SortKeyProperty: exp.Properties.Location.POST_SCHEMA,
         exp.SqlReadWriteProperty: exp.Properties.Location.POST_SCHEMA,
-        exp.SqlSecurityProperty: exp.Properties.Location.POST_CREATE,
+        exp.SqlSecurityProperty: exp.Properties.Location.POST_SCHEMA,
         exp.StabilityProperty: exp.Properties.Location.POST_SCHEMA,
         exp.StorageHandlerProperty: exp.Properties.Location.POST_SCHEMA,
         exp.StreamingTableProperty: exp.Properties.Location.POST_CREATE,
@@ -4812,20 +4814,21 @@ class Generator(metaclass=_Generator):
             return self.sql(this)
 
         if self.IGNORE_NULLS_IN_FUNC and not expression.meta.get("inline"):
-            # The first modifier here will be the one closest to the AggFunc's arg
-            mods = sorted(
-                expression.find_all(exp.HavingMax, exp.Order, exp.Limit),
-                key=lambda x: 0
-                if isinstance(x, exp.HavingMax)
-                else (1 if isinstance(x, exp.Order) else 2),
-            )
+            if self.IGNORE_NULLS_BEFORE_ORDER:
+                # The first modifier here will be the one closest to the AggFunc's arg
+                mods = sorted(
+                    expression.find_all(exp.HavingMax, exp.Order, exp.Limit),
+                    key=lambda x: 0
+                    if isinstance(x, exp.HavingMax)
+                    else (1 if isinstance(x, exp.Order) else 2),
+                )
 
-            if mods:
-                mod = mods[0]
-                this = expression.__class__(this=mod.this.copy())
-                this.meta["inline"] = True
-                mod.this.replace(this)
-                return self.sql(expression.this)
+                if mods:
+                    mod = mods[0]
+                    this = expression.__class__(this=mod.this.copy())
+                    this.meta["inline"] = True
+                    mod.this.replace(this)
+                    return self.sql(expression.this)
 
             agg_func = expression.find(exp.AggFunc)
 
