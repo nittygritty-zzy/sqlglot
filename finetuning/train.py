@@ -90,6 +90,10 @@ def load_model_and_tokenizer(config: TrainConfig):
         )
         model_kwargs["device_map"] = "auto"
         logger.info("Using QLoRA with 4-bit quantization (CUDA)")
+    elif use_cuda:
+        model_kwargs["torch_dtype"] = torch.float16
+        model_kwargs["device_map"] = "auto"
+        logger.info("Using float16 LoRA on CUDA (no quantization)")
     elif use_mps:
         model_kwargs["torch_dtype"] = torch.float16
         model_kwargs["device_map"] = {"": device}
@@ -162,7 +166,10 @@ def train(config: TrainConfig):
         logger.info(f"Dev samples: {len(dev_dataset)}")
 
     # Training config — TRL 0.29 uses SFTConfig which combines TrainingArguments + SFT params
-    fp16 = use_cuda or use_mps
+    # QLoRA with bitsandbytes produces BFloat16 params, which are incompatible with FP16 AMP scaler.
+    # Use bf16 when doing 4-bit quantization on CUDA, fp16 otherwise.
+    use_bf16 = use_cuda and config.load_in_4bit
+    use_fp16 = (use_cuda or use_mps) and not use_bf16
     has_eval = dev_dataset is not None
 
     sft_config = SFTConfig(
@@ -174,8 +181,8 @@ def train(config: TrainConfig):
         warmup_ratio=config.warmup_ratio,
         weight_decay=config.weight_decay,
         lr_scheduler_type=config.lr_scheduler_type,
-        fp16=fp16,
-        bf16=False,
+        fp16=use_fp16,
+        bf16=use_bf16,
         logging_steps=config.logging_steps,
         eval_strategy="steps" if has_eval else "no",
         eval_steps=config.eval_steps if has_eval else None,
