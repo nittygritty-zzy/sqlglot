@@ -76,6 +76,16 @@ ls data/bird/dev_20240627/dev_databases | wc -l  # ~11 databases
 This reads the 15,443 validated golden pairs (standard SQL ↔ pipe SQL) and generates incremental chat training samples. Each N-operator pipe query is decomposed into N training samples where the model learns to emit one pipe operator at a time.
 
 ```bash
+# Full dataset (recommended for production training)
+python -m training_data.generate \
+    --golden-pairs validation_output/golden_pairs_consolidated.jsonl \
+    --db-dir data/spider/database \
+    --db-dir data/bird/train/train_databases \
+    --db-dir data/bird/dev_20240627/dev_databases \
+    --output-dir training_data_output \
+    --tool-calling --tool-ratio 0.3
+
+# Subset for quick iteration (add --limit)
 python -m training_data.generate \
     --golden-pairs validation_output/golden_pairs_consolidated.jsonl \
     --db-dir data/spider/database \
@@ -92,17 +102,16 @@ python -m training_data.generate \
 | `--db-dir` | Directories containing SQLite databases (repeatable) |
 | `--tool-calling` | Also generate agentic tool-calling training samples |
 | `--tool-ratio 0.3` | 30% of golden pairs get an additional tool-calling sample |
-| `--limit 2000` | Process only the first 2000 pairs (remove for full dataset) |
+| `--limit N` | Process only the first N pairs (omit for full dataset) |
 
-**Output** (`training_data_output/`):
+**Expected output**:
 
-| File | Description |
-|------|-------------|
-| `train.jsonl` | 6,860 training samples |
-| `dev.jsonl` | 498 validation samples |
-| `stats.json` | Operator distribution, step counts, database count |
+| Input | Total Samples | Train (95%) | Dev (5%) | Tool-calling |
+|-------|--------------|-------------|----------|--------------|
+| `--limit 2000` | ~7,400 | ~6,900 | ~500 | ~580 |
+| All 15,443 pairs | ~57,000 | ~54,000 | ~2,800 | ~4,600 |
 
-With `--limit 2000`, this produces 7,358 total samples (including 579 tool-calling samples) from 1,680 unique queries across 78 databases. Remove `--limit` to process all 15,443 golden pairs for ~50K+ samples.
+Each golden pair produces ~3.7 training samples on average (trajectory decomposition amplification). Output files: `train.jsonl`, `dev.jsonl`, `stats.json`.
 
 ### Training Data Format
 
@@ -134,9 +143,9 @@ bash scripts/train.sh
 
 ### Manual Training Commands
 
-#### 5a. Smoke Test (1.5B, 1 epoch)
+#### 5a. Smoke Test (1.5B, 1 epoch, small subset)
 
-Validates the pipeline works end-to-end:
+Validates the pipeline works end-to-end. Use a small dataset generated with `--limit 2000`:
 
 ```bash
 python -m finetuning.train \
@@ -153,52 +162,92 @@ python -m finetuning.train \
 
 Expected: loss drops from ~2.1 to ~0.2, token accuracy rises to ~96%.
 
-#### 5b. Full 1.5B Training (3 epochs)
+#### 5b. Full 1.5B Training (recommended: full dataset, 2 epochs)
 
 ```bash
 python -m finetuning.train \
     --model-name Qwen/Qwen2.5-Coder-1.5B-Instruct \
+    --train-data training_data_output/train.jsonl \
+    --dev-data training_data_output/dev.jsonl \
     --max-seq-length 4096 \
     --per-device-train-batch-size 4 \
     --gradient-accumulation-steps 8 \
-    --num-epochs 3 \
+    --num-epochs 2 \
     --no-4bit \
-    --output-dir finetuning_output
+    --output-dir finetuning_output_1.5b
 ```
 
-#### 5c. 7B QLoRA Training (3 epochs)
+#### 5c. 7B QLoRA Training (recommended: full dataset, 2 epochs)
 
 For the full-size model using 4-bit quantization to fit in 16 GB VRAM:
 
 ```bash
 python -m finetuning.train \
     --model-name Qwen/Qwen2.5-Coder-7B-Instruct \
+    --train-data training_data_output/train.jsonl \
+    --dev-data training_data_output/dev.jsonl \
     --max-seq-length 4096 \
     --per-device-train-batch-size 1 \
-    --gradient-accumulation-steps 16 \
-    --num-epochs 3 \
+    --gradient-accumulation-steps 32 \
+    --num-epochs 2 \
     --load-in-4bit \
+    --save-steps 1000 \
+    --eval-steps 1000 \
     --output-dir finetuning_output_7b
 ```
 
-### Key Training Parameters
+### Recommended Configurations
 
-| Parameter | 1.5B (float16) | 7B (QLoRA 4-bit) |
-|-----------|----------------|-------------------|
-| `--per-device-train-batch-size` | 4 | 1 |
-| `--gradient-accumulation-steps` | 8 | 16 |
-| `--load-in-4bit` / `--no-4bit` | `--no-4bit` | `--load-in-4bit` |
-| Effective batch size | 32 | 16 |
-| VRAM usage | ~7 GB | ~12.5 GB |
-| Training time (2K samples, 3 epochs) | ~1h 44min | ~3h |
+The table below shows recommended settings for both dataset sizes. With the full dataset (15,443 pairs → ~54K train samples), 2 epochs is optimal — 7.7x more data reduces overfitting risk, and eval loss plateaus by epoch 2. With the smaller subset, 3 epochs compensates for limited data.
+
+**1.5B (float16, `--no-4bit`)**:
+
+| Parameter | Subset (2K pairs) | Full (15K pairs) |
+|-----------|-------------------|-------------------|
+| `--num-epochs` | 3 | **2** |
+| `--per-device-train-batch-size` | 4 | 4 |
+| `--gradient-accumulation-steps` | 8 | 8 |
+| Effective batch size | 32 | 32 |
+| Steps/epoch | ~215 | ~1,690 |
+| Total steps | ~645 | ~3,380 |
+| VRAM usage | ~7 GB | ~7 GB |
+| Est. time (RTX 4080) | ~1h 44min | **~3.5 hours** |
+
+**7B QLoRA (4-bit, `--load-in-4bit`)**:
+
+| Parameter | Subset (2K pairs) | Full (15K pairs) |
+|-----------|-------------------|-------------------|
+| `--num-epochs` | 3 | **2** |
+| `--per-device-train-batch-size` | 1 | 1 |
+| `--gradient-accumulation-steps` | 16 | **32** |
+| Effective batch size | 16 | **32** |
+| `--save-steps` / `--eval-steps` | 500 | **1000** |
+| Steps/epoch | ~429 | ~1,690 |
+| Total steps | ~1,287 | ~3,380 |
+| VRAM usage | ~12.5 GB | ~12.5 GB |
+| Est. time (RTX 4080) | ~3 hours | **~17 hours** |
+
+> **Tip**: Run 1.5B first as a quick validation (~3.5h). If eval loss improves over the subset baseline (0.191), the full dataset is working well. Then kick off the 7B overnight.
+
+### Why 2 Epochs for Full Dataset?
+
+With the 2K subset (3 epochs), we observed:
+- Train loss 0.132 vs eval loss 0.191 → gap of 0.059 indicates mild overfitting
+- Eval loss plateaued between epoch 2 and 3
+
+With 7.7x more training data, the model sees far more diverse examples per epoch. 2 epochs provides sufficient coverage while avoiding diminishing returns. More data > more epochs.
+
+### Why grad_accum=32 for Full 7B?
+
+Doubling gradient accumulation from 16 to 32 (effective batch 32) halves the number of optimizer steps while keeping total forward/backward passes identical. Each optimizer step uses a lower-variance gradient estimate, giving more stable training. This doesn't change wall-clock time but produces better-calibrated updates.
 
 ### What the Trainer Does
 
-1. Loads the base model (Qwen2.5-Coder) with LoRA adapters targeting all attention + MLP projections
+1. Loads the base model (Qwen2.5-Coder) with LoRA adapters targeting all attention + MLP projections (r=16, alpha=32)
 2. Applies a custom chat template with `{% generation %}` markers so loss is computed only on assistant responses (`assistant_only_loss=True`)
 3. Uses gradient checkpointing to reduce VRAM usage
 4. For QLoRA: uses bitsandbytes 4-bit NF4 quantization with bf16 compute
-5. Saves checkpoints every 500 steps, keeps the 3 most recent
+5. Saves checkpoints periodically, keeps the 3 most recent
 6. Restores the original Qwen chat template (with tool-call support) before saving the final adapter
 
 ## Step 6: Merge LoRA Adapter
@@ -209,7 +258,7 @@ After training, merge the LoRA adapter into the base model for standalone infere
 # For 1.5B model
 python -m finetuning.train --merge \
     --model-name Qwen/Qwen2.5-Coder-1.5B-Instruct \
-    --output-dir finetuning_output
+    --output-dir finetuning_output_1.5b
 
 # For 7B model
 python -m finetuning.train --merge \
@@ -225,9 +274,11 @@ The merged model is saved to `<output-dir>/merged/` and can be loaded directly w
 
 ## Training Results (Reference)
 
-Results from training with `--limit 2000` (7,358 samples) on an RTX 4080 16 GB:
+All results on RTX 4080 16 GB.
 
-### 1.5B Smoke Test (1 epoch, float16)
+### Subset Baseline (2K pairs → 7,358 samples)
+
+**1.5B Smoke Test (1 epoch, float16)**:
 
 | Metric | Start | End |
 |--------|-------|-----|
@@ -236,7 +287,7 @@ Results from training with `--limit 2000` (7,358 samples) on an RTX 4080 16 GB:
 | Eval loss | — | 0.197 |
 | Runtime | — | 35 min |
 
-### 1.5B Full Training (3 epochs, float16)
+**1.5B Full (3 epochs, float16)**:
 
 | Metric | Start | End |
 |--------|-------|-----|
@@ -244,6 +295,14 @@ Results from training with `--limit 2000` (7,358 samples) on an RTX 4080 16 GB:
 | Token accuracy | 66.9% | 98.4% |
 | Eval loss | — | 0.191 |
 | Runtime | — | 1h 44min |
+
+### Full Dataset Expectations (15K pairs → ~57K samples)
+
+With 7.7x more data, we expect:
+- **Lower eval loss** than the 0.191 subset baseline (better generalization from more diverse examples)
+- **Smaller train-eval gap** (less overfitting with 2 epochs on more data)
+- **1.5B**: ~3.5 hours for 2 epochs
+- **7B QLoRA**: ~17 hours for 2 epochs (best run overnight)
 
 ### VRAM Budget (RTX 4080 — 16 GB)
 
