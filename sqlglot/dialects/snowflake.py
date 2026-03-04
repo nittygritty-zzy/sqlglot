@@ -558,13 +558,13 @@ def _qualify_unnested_columns(expression: exp.Expr) -> exp.Expr:
                 and column.name.lower() != unnest_identifier.name.lower()
             ):
                 unnest_ancestor = column.find_ancestor(exp.Unnest, exp.Select)
-                ancestor_identifier = unnest_to_identifier.get(unnest_ancestor)
-                if (
-                    isinstance(unnest_ancestor, exp.Unnest)
-                    and ancestor_identifier
-                    and ancestor_identifier.name.lower() == unnest_identifier.name.lower()
-                ):
-                    continue
+                if isinstance(unnest_ancestor, exp.Unnest):
+                    ancestor_identifier = unnest_to_identifier.get(unnest_ancestor)
+                    if (
+                        ancestor_identifier
+                        and ancestor_identifier.name.lower() == unnest_identifier.name.lower()
+                    ):
+                        continue
 
                 table = unnest_identifier
 
@@ -858,6 +858,12 @@ class Snowflake(Dialect):
             "ARRAY_POSITION": lambda args: exp.ArrayPosition(
                 this=seq_get(args, 1),
                 expression=seq_get(args, 0),
+                zero_based=True,
+            ),
+            "ARRAY_SLICE": lambda args: exp.ArraySlice(
+                this=seq_get(args, 0),
+                start=seq_get(args, 1),
+                end=seq_get(args, 2),
                 zero_based=True,
             ),
             "ARRAY_SORT": exp.SortArray.from_arg_list,
