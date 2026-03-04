@@ -64,6 +64,35 @@ def _collect_select_column_names(ast: exp.Select) -> set[str]:
     return names
 
 
+def _build_select_alias_map(ast: exp.Select, dialect: str = "sqlite") -> dict[str, str]:
+    """Build mapping from original expression SQL → alias for aliased expressions in SELECT.
+
+    E.g., SELECT i_brand_id AS brand_id → {"I_BRAND_ID": "brand_id"}
+    E.g., SELECT SUBSTRING(w, 1, 20) AS _col_0 → {"SUBSTRING(W, 1, 20)": "_col_0"}
+    Only maps expressions where the alias differs from the expression name.
+    """
+    alias_map: dict[str, str] = {}
+    for expr in ast.expressions:
+        if isinstance(expr, exp.Alias):
+            alias_name = expr.alias
+            if isinstance(expr.this, exp.Column):
+                col_name = expr.this.name.upper()
+                if col_name != alias_name.upper():
+                    alias_map[col_name] = alias_name
+            else:
+                # For non-column expressions (functions, etc.), map full SQL
+                expr_sql = expr.this.sql(dialect=dialect).upper()
+                alias_map[expr_sql] = alias_name
+                # Also store stripped version (no table qualifiers)
+                stripped = expr.this.copy()
+                for col in stripped.find_all(exp.Column):
+                    col.set("table", None)
+                stripped_sql = stripped.sql(dialect=dialect).upper()
+                if stripped_sql != expr_sql:
+                    alias_map[stripped_sql] = alias_name
+    return alias_map
+
+
 def _order_refs_outside_select(ast: exp.Select) -> bool:
     order = ast.args.get("order")
     if not order:
@@ -235,6 +264,9 @@ def emit_pipe_query(ast: exp.Expression, dialect: str = "sqlite") -> PipeQuery:
         )
         query.operators.extend(agg_ops)
 
+        # Build alias map for ORDER BY column substitution after CTE wrapping
+        select_alias_map = _build_select_alias_map(ast, dialect=dialect)
+
         if order_has_agg:
             # ORDER BY with aggregate refs → use aliases, ORDER BY before SELECT
             agg_map = _build_order_alias_map(ast, extra_order_aggs, dialect=dialect)
@@ -256,7 +288,8 @@ def emit_pipe_query(ast: exp.Expression, dialect: str = "sqlite") -> PipeQuery:
                 # emit ORDER BY before SELECT so GROUP BY columns are still available
                 # Strip qualifiers since ORDER BY follows AGGREGATE (CTE context)
                 order_ops = terminal_rule.emit_order_only(
-                    ast, dialect=dialect, strip_qualifiers=True
+                    ast, dialect=dialect, strip_qualifiers=True,
+                    select_alias_map=select_alias_map,
                 )
                 query.operators.extend(order_ops)
                 select_op = projection_rule.emit(
@@ -273,13 +306,18 @@ def emit_pipe_query(ast: exp.Expression, dialect: str = "sqlite") -> PipeQuery:
                 )
                 if select_op:
                     query.operators.append(select_op)
-                terminal_ops = terminal_rule.emit(ast, dialect=dialect)
+                terminal_ops = terminal_rule.emit(
+                    ast, dialect=dialect, select_alias_map=select_alias_map
+                )
                 query.operators.extend(terminal_ops)
 
     else:
         # No aggregation
+        select_alias_map = _build_select_alias_map(ast, dialect=dialect)
         if order_outside_select:
-            order_ops = terminal_rule.emit_order_only(ast, dialect=dialect)
+            order_ops = terminal_rule.emit_order_only(
+                ast, dialect=dialect, select_alias_map=select_alias_map
+            )
             query.operators.extend(order_ops)
             select_op = projection_rule.emit(ast, has_aggregate=False, dialect=dialect)
             if select_op:
@@ -290,13 +328,15 @@ def emit_pipe_query(ast: exp.Expression, dialect: str = "sqlite") -> PipeQuery:
             select_op = projection_rule.emit(ast, has_aggregate=False, dialect=dialect)
             if select_op:
                 query.operators.append(select_op)
-            terminal_ops = terminal_rule.emit(ast, dialect=dialect)
+            terminal_ops = terminal_rule.emit(
+                ast, dialect=dialect, select_alias_map=select_alias_map
+            )
             query.operators.extend(terminal_ops)
 
     # When the main query has both explicit CTEs and pipe operators that create
     # implicit CTEs (SELECT), the transpiler can't merge them correctly.
     # Fall back to standard SQL for the entire query in this case.
-    if query.ctes and any(op.op_type == PipeOpType.SELECT for op in query.operators):
+    if query.ctes and any(op.op_type in (PipeOpType.SELECT, PipeOpType.AGGREGATE) for op in query.operators):
         fallback_sql = ast.sql(dialect=dialect)
         return PipeQuery(
             operators=[PipeOperator(op_type=PipeOpType.FROM, sql_fragment=fallback_sql)]
@@ -324,7 +364,11 @@ def _emit_order_with_aliases(
             suffix = " DESC" if desc else ""
             order_parts.append(f"{alias}{suffix}")
         else:
-            order_parts.append(order_expr.sql(dialect=dialect))
+            # Strip table qualifiers since ORDER BY follows AGGREGATE (CTE context)
+            stripped = order_expr.copy()
+            for col in stripped.find_all(exp.Column):
+                col.set("table", None)
+            order_parts.append(stripped.sql(dialect=dialect))
 
     return [
         PipeOperator(

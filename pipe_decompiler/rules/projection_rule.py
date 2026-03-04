@@ -16,6 +16,11 @@ def _has_agg_func(expr: exp.Expression) -> bool:
     return False
 
 
+def _has_window_func(expr: exp.Expression) -> bool:
+    """Check if an expression contains a window function."""
+    return any(isinstance(node, exp.Window) for node in expr.walk())
+
+
 def _strip_table_qualifier_ast(expr: exp.Expression, dialect: str = "sqlite") -> str:
     """Remove table qualifiers from all column references in an expression using AST.
 
@@ -57,14 +62,18 @@ def emit(
         parts = []
         agg_counter = 0
         for expr in select_exprs:
-            if _has_agg_func(expr):
+            if _has_agg_func(expr) or _has_window_func(expr):
                 if isinstance(expr, exp.Alias):
-                    parts.append(expr.alias)
+                    parts.append(expr.args["alias"].sql(dialect=dialect))
                 else:
                     agg_counter += 1
                     parts.append(f"_agg{agg_counter}")
+            elif isinstance(expr, exp.Alias):
+                # Any aliased expression — use the alias since after CTE wrapping
+                # only the alias name is available
+                parts.append(expr.args["alias"].sql(dialect=dialect))
             else:
-                # Non-aggregate column - check for GROUP BY expression alias first
+                # Non-aggregate, non-aliased column - check for GROUP BY expression alias
                 stripped = _strip_table_qualifier_ast(expr, dialect=dialect)
                 if stripped.upper() in grp_aliases:
                     parts.append(grp_aliases[stripped.upper()])

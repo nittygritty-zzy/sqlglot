@@ -60,16 +60,36 @@ def _collect_having_agg_exprs(
     return result
 
 
-def _substitute_having_aliases(having_sql: str, having_aliases: list[tuple[str, str]]) -> str:
-    """Replace aggregate expressions in HAVING SQL with their aliases."""
-    result = having_sql
-    for agg_sql, alias in having_aliases:
-        # Case-insensitive replacement
-        import re
+def _substitute_having_aliases(
+    having_expr: exp.Expression,
+    all_aliases: list[tuple[str, str]],
+    dialect: str = "sqlite",
+) -> str:
+    """Replace aggregate expressions in HAVING with their aliases using AST transformation.
 
-        pattern = re.escape(agg_sql)
-        result = re.sub(pattern, alias, result, flags=re.IGNORECASE)
-    return result
+    Only replaces aggregates in the outer scope (skips subqueries).
+    """
+    # Build a map from uppercase aggregate SQL → alias
+    agg_map: dict[str, str] = {}
+    for agg_sql, alias in all_aliases:
+        agg_map[agg_sql.upper()] = alias
+
+    if not agg_map:
+        return having_expr.sql(dialect=dialect)
+
+    def _transform(node: exp.Expression) -> exp.Expression:
+        # Don't descend into subqueries — their aggregates belong to inner scope
+        if isinstance(node, (exp.Subquery, exp.Select)):
+            return node
+
+        if isinstance(node, exp.AggFunc):
+            node_sql = node.sql(dialect=dialect).upper()
+            if node_sql in agg_map:
+                return exp.column(agg_map[node_sql])
+        return node
+
+    result = having_expr.transform(_transform)
+    return result.sql(dialect=dialect)
 
 
 def emit(
@@ -99,6 +119,14 @@ def emit(
         group_strs_set.add(sql)
         group_strs_set.add(_strip_table_qualifier(sql))
 
+    # Also include columns from ROLLUP/CUBE/GROUPING SETS
+    for advanced_group in ["rollup", "cube", "grouping_sets"]:
+        for group_node in group.args.get(advanced_group) or []:
+            for col_expr in group_node.expressions:
+                col_sql = col_expr.sql(dialect=dialect).upper()
+                group_strs_set.add(col_sql)
+                group_strs_set.add(_strip_table_qualifier(col_sql))
+
     # Collect existing aggregate SQL from SELECT (for dedup with HAVING)
     existing_agg_sqls = set()
     for expr in select_exprs:
@@ -121,6 +149,7 @@ def emit(
             if isinstance(expr, exp.Alias):
                 agg_parts.append(expr_sql)
             else:
+                # Un-aliased aggregates need a generated alias for CTE reference
                 agg_counter += 1
                 alias = f"_agg{agg_counter}"
                 agg_parts.append(f"{expr_sql} AS {alias}")
@@ -159,6 +188,14 @@ def emit(
                 col.set("table", None)
             group_expr_aliases[stripped.sql(dialect=dialect).upper()] = alias
 
+    # Include ROLLUP, CUBE, GROUPING SETS (stored in separate Group args)
+    for rollup in group.args.get("rollup") or []:
+        group_strs.append(rollup.sql(dialect=dialect))
+    for cube in group.args.get("cube") or []:
+        group_strs.append(cube.sql(dialect=dialect))
+    for gs in group.args.get("grouping_sets") or []:
+        group_strs.append(gs.sql(dialect=dialect))
+
     agg_fragment = "AGGREGATE"
     if agg_parts:
         agg_fragment += " " + ", ".join(agg_parts)
@@ -169,8 +206,6 @@ def emit(
     # HAVING → WHERE after AGGREGATE, with aggregate aliases substituted
     having = ast.args.get("having")
     if having:
-        having_sql = having.this.sql(dialect=dialect)
-
         # Build full alias map for substitution (SELECT + HAVING aliases)
         all_aliases = list(having_aliases)
         # Also map SELECT aggregates to their aliases
@@ -185,7 +220,7 @@ def emit(
                     agg_sql = expr.sql(dialect=dialect)
                     all_aliases.append((agg_sql, f"_agg{agg_counter}"))
 
-        having_sql = _substitute_having_aliases(having_sql, all_aliases)
+        having_sql = _substitute_having_aliases(having.this, all_aliases, dialect=dialect)
         operators.append(PipeOperator(op_type=PipeOpType.WHERE, sql_fragment=f"WHERE {having_sql}"))
 
     return operators, group_expr_aliases

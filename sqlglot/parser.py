@@ -9149,6 +9149,33 @@ class Parser(metaclass=_Parser):
 
         return query
 
+    def _has_advanced_grouping_ahead(self) -> bool:
+        """Check if ROLLUP, CUBE, or GROUPING SETS appears in the GROUP BY clause ahead."""
+        index = self._index
+        depth = 0
+        while self._index < len(self._tokens):
+            token = self._tokens[self._index]
+            if token.token_type in (TokenType.CUBE, TokenType.ROLLUP):
+                self._retreat(index)
+                return True
+            if token.token_type == TokenType.GROUPING_SETS:
+                self._retreat(index)
+                return True
+            # Stop at pipe operator or end of expression
+            if token.token_type == TokenType.PIPE and depth == 0:
+                break
+            if token.token_type == TokenType.L_PAREN:
+                depth += 1
+            elif token.token_type == TokenType.R_PAREN:
+                depth -= 1
+                if depth < 0:
+                    break
+            if token.token_type == TokenType.SEMICOLON:
+                break
+            self._advance()
+        self._retreat(index)
+        return False
+
     def _parse_pipe_syntax_aggregate_fields(self) -> t.Optional[exp.Expr]:
         this = self._parse_disjunction()
         if self._match_text_seq("GROUP", "AND", advance=False):
@@ -9196,7 +9223,24 @@ class Parser(metaclass=_Parser):
         if self._match(TokenType.GROUP_BY) or (
             self._match_text_seq("GROUP", "AND") and self._match(TokenType.ORDER_BY)
         ):
-            query = self._parse_pipe_syntax_aggregate_group_order_by(query)
+            # Check if GROUP BY contains ROLLUP/CUBE/GROUPING SETS anywhere
+            # by scanning ahead (they may not be at the start, e.g., GROUP BY a, ROLLUP(b))
+            has_advanced_grouping = self._has_advanced_grouping_ahead()
+            if has_advanced_grouping:
+                # Use standard GROUP BY parsing for advanced grouping features
+                group = self._parse_group(skip_group_by_token=True)
+                if group:
+                    query.set("group", group)
+                    # Add GROUP BY columns to SELECT so they're available after CTE wrapping
+                    for col_expr in group.expressions:
+                        query.select(col_expr.copy(), copy=False)
+                    for key in ("rollup", "cube", "grouping_sets"):
+                        for node in group.args.get(key) or []:
+                            for col_expr in node.expressions:
+                                query.select(col_expr.copy(), copy=False)
+            else:
+                # Use pipe syntax GROUP BY parsing (supports aliases)
+                query = self._parse_pipe_syntax_aggregate_group_order_by(query)
 
         return self._build_pipe_cte(query=query, expressions=[exp.Star()])
 
