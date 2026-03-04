@@ -189,12 +189,15 @@ python -m finetuning.train \
     --max-seq-length 4096 \
     --per-device-train-batch-size 1 \
     --gradient-accumulation-steps 32 \
+    --learning-rate 5e-5 \
     --num-epochs 2 \
     --load-in-4bit \
     --save-steps 1000 \
     --eval-steps 1000 \
     --output-dir finetuning_output_7b
 ```
+
+> **Important**: The lower learning rate (5e-5 vs default 2e-4) is critical for 7B stability. An earlier run with 2e-4 collapsed to NaN at epoch ~1.5. See the Troubleshooting section for details.
 
 ### Recommended Configurations
 
@@ -217,15 +220,18 @@ The table below shows recommended settings for both dataset sizes. With the full
 
 | Parameter | Subset (2K pairs) | Full (15K pairs) |
 |-----------|-------------------|-------------------|
-| `--num-epochs` | 3 | **2** |
+| `--num-epochs` | 2 | **2** |
 | `--per-device-train-batch-size` | 1 | 1 |
-| `--gradient-accumulation-steps` | 16 | **32** |
-| Effective batch size | 16 | **32** |
+| `--gradient-accumulation-steps` | 32 | **32** |
+| `--learning-rate` | **5e-5** | **5e-5** |
+| Effective batch size | 32 | **32** |
 | `--save-steps` / `--eval-steps` | 500 | **1000** |
 | Steps/epoch | ~429 | ~1,690 |
-| Total steps | ~1,287 | ~3,380 |
+| Total steps | ~858 | ~3,380 |
 | VRAM usage | ~12.5 GB | ~12.5 GB |
-| Est. time (RTX 4080) | ~3 hours | **~17 hours** |
+| Est. time (RTX 4080) | ~2 hours | **~17 hours** |
+
+> **Note**: Earlier runs with `--learning-rate 2e-4` and `--gradient-accumulation-steps 16` over 3 epochs caused a training collapse at epoch ~1.5 (loss → NaN). The settings above reflect the corrected configuration.
 
 > **Tip**: Run 1.5B first as a quick validation (~3.5h). If eval loss improves over the subset baseline (0.191), the full dataset is working well. Then kick off the 7B overnight.
 
@@ -274,27 +280,76 @@ The merged model is saved to `<output-dir>/merged/` and can be loaded directly w
 
 ## Training Results (Reference)
 
-All results on RTX 4080 16 GB.
+All results on RTX 4080 16 GB, subset dataset (2K pairs → 7,358 samples).
 
-### Subset Baseline (2K pairs → 7,358 samples)
-
-**1.5B Smoke Test (1 epoch, float16)**:
+### 1.5B Smoke Test (1 epoch, float16)
 
 | Metric | Start | End |
 |--------|-------|-----|
 | Train loss | 2.126 | 0.200 |
-| Token accuracy | 67.4% | 96.3% |
-| Eval loss | — | 0.197 |
-| Runtime | — | 35 min |
+| Token accuracy | 67.4% | 96.1% |
+| Steps | — | 429 |
+| Runtime | — | ~35 min |
 
-**1.5B Full (3 epochs, float16)**:
+Smooth training curve. No eval configured (single epoch validation run).
+
+### 1.5B Full (3 epochs, float16)
 
 | Metric | Start | End |
 |--------|-------|-----|
-| Train loss | 2.172 | 0.132 |
-| Token accuracy | 66.9% | 98.4% |
-| Eval loss | — | 0.191 |
-| Runtime | — | 1h 44min |
+| Train loss | 2.172 | 0.191 |
+| Token accuracy | 66.9% | 97.7% |
+| Best eval loss | — | **0.191** (step 500, epoch 2.3) |
+| Eval token accuracy | — | 95.8% |
+| Steps | — | 645 |
+| Runtime | — | ~1h 44min |
+
+Training converged well. Best checkpoint at step 500. Final train loss (0.132 at step 630) vs eval loss (0.191) shows a gap of 0.059, indicating mild overfitting in the third epoch. LoRA adapter merged successfully.
+
+### 7B QLoRA (3 epochs, 4-bit) — FAILED (Training Collapse)
+
+| Metric | Start | Best (step 500) | Collapse (step 680) |
+|--------|-------|-----------------|---------------------|
+| Train loss | 2.271 | 0.253 | **7.05 → NaN** |
+| Token accuracy | 66.5% | 97.4% | **58.6% → 0.0%** |
+| Eval loss | — | **0.224** | NaN (step 1000) |
+| Eval token accuracy | — | 95.8% | 0.0% |
+| Grad norm | 0.11 | 0.031 | **NaN** |
+| Steps | — | 500/1287 | 680/1287 |
+
+**What happened**: Training progressed normally through step 610 (epoch ~1.42), then catastrophically collapsed:
+
+| Step | Epoch | Loss | Accuracy | Grad Norm |
+|------|-------|------|----------|-----------|
+| 610 | 1.42 | 0.25 | 96.6% | 0.24 |
+| 620 | 1.45 | 0.87 | 90.3% | 0.92 |
+| 630 | 1.47 | 2.15 | 72.6% | 2.47 |
+| 640 | 1.49 | 2.77 | 67.8% | 1.66 |
+| 650 | 1.52 | 3.52 | 55.9% | 1.66 |
+| 660 | 1.54 | 3.70 | 45.0% | 1.84 |
+| 670 | 1.56 | 3.95 | 54.6% | 0.86 |
+| 680 | 1.59 | **7.05** | 58.6% | **NaN** |
+| 690+ | 1.61+ | 0.0 | 0.0% | NaN |
+
+The model weights went to NaN at step 680 and remained dead for the remaining ~600 steps. The loss spike correlates with gradient norm explosion (0.24 → 2.47 over 20 steps).
+
+**Likely causes**:
+1. Learning rate (2e-4) too aggressive for the 7B model
+2. Batch size of 1 (even with grad_accum=16) causes high gradient variance
+3. Possible numerical instability in 4-bit quantization + bf16 compute
+
+**Salvageable**: The **checkpoint-500** (before collapse) is still viable — eval_loss=0.224, accuracy=95.8%. To use it:
+```bash
+python -m finetuning.train --merge \
+    --model-name Qwen/Qwen2.5-Coder-7B-Instruct \
+    --output-dir finetuning_output_7b \
+    --checkpoint checkpoint-500
+```
+
+**Recommended fixes for re-training** (see Troubleshooting section below):
+- Lower learning rate to 5e-5
+- Increase gradient accumulation to 32 (effective batch 32)
+- Add explicit gradient clipping (`max_grad_norm=0.5`)
 
 ### Full Dataset Expectations (15K pairs → ~57K samples)
 
@@ -303,6 +358,7 @@ With 7.7x more data, we expect:
 - **Smaller train-eval gap** (less overfitting with 2 epochs on more data)
 - **1.5B**: ~3.5 hours for 2 epochs
 - **7B QLoRA**: ~17 hours for 2 epochs (best run overnight)
+- **Important**: Use the reduced learning rate (5e-5) and higher grad_accum (32) for 7B to avoid the collapse observed in the subset run
 
 ### VRAM Budget (RTX 4080 — 16 GB)
 
@@ -384,6 +440,40 @@ python -m finetuning.train --merge \
     --output-dir finetuning_output
 ```
 
+### 7B QLoRA Training Collapse (Loss → NaN)
+
+**Symptom**: Training loss spikes dramatically around epoch 1.4–1.6, gradient norm explodes, then all metrics go to NaN/0.0 for the remaining steps.
+
+**Cause**: The combination of a high learning rate (2e-4), small per-device batch size (1), and 4-bit quantization creates conditions for numerical instability. A single bad gradient update can cascade — once gradient norms exceed ~1.0, the model enters an irrecoverable divergence loop that ends in NaN weights.
+
+**Fix**: Apply all three mitigations:
+
+```bash
+python -m finetuning.train \
+    --model-name Qwen/Qwen2.5-Coder-7B-Instruct \
+    --train-data training_data_output/train.jsonl \
+    --dev-data training_data_output/dev.jsonl \
+    --max-seq-length 4096 \
+    --per-device-train-batch-size 1 \
+    --gradient-accumulation-steps 32 \
+    --num-epochs 2 \
+    --learning-rate 5e-5 \
+    --load-in-4bit \
+    --save-steps 500 \
+    --eval-steps 500 \
+    --output-dir finetuning_output_7b
+```
+
+Key changes from the failed run:
+| Parameter | Failed Run | Recommended |
+|-----------|-----------|-------------|
+| `--learning-rate` | 2e-4 (default) | **5e-5** |
+| `--gradient-accumulation-steps` | 16 | **32** |
+| `--num-epochs` | 3 | **2** |
+| `max_grad_norm` | 1.0 (default) | **0.5** (if supported) |
+
+**Recovery**: If training has already collapsed, the last good checkpoint before the spike is still usable. Check `trainer_state.json` in each checkpoint directory — look for the last one with normal loss values and merge from there.
+
 ### First Run Downloads Are Slow
 
 The first time you run training, HuggingFace downloads the model weights (~3 GB for 1.5B, ~15 GB for 7B). Subsequent runs use the cached weights from `~/.cache/huggingface/`. For faster downloads, set a HuggingFace token:
@@ -396,12 +486,14 @@ huggingface-cli login
 
 ## Full Reproduction Checklist
 
-- [ ] Python 3.11 virtual environment created
-- [ ] PyTorch with CUDA support installed and verified
-- [ ] Spider 1.0 databases downloaded (~166 DBs)
-- [ ] BIRD databases downloaded (~81 DBs)
-- [ ] Training data generated from golden pairs
-- [ ] Smoke test passed (loss decreases, accuracy >90%)
-- [ ] Full 1.5B training completed (eval_loss < 0.20)
-- [ ] 7B QLoRA training completed
-- [ ] LoRA adapters merged into standalone models
+- [x] Python 3.11 virtual environment created
+- [x] PyTorch with CUDA support installed and verified
+- [x] Spider 1.0 databases downloaded (~166 DBs)
+- [x] BIRD databases downloaded (~81 DBs)
+- [x] Training data generated from golden pairs
+- [x] Smoke test passed (1.5B, 1 epoch — loss 2.13→0.20, accuracy 96.1%)
+- [x] Full 1.5B training completed (3 epochs — eval_loss=0.191, accuracy 95.8%)
+- [x] 1.5B LoRA adapter merged (`finetuning_output/merged/`)
+- [ ] 7B QLoRA training — **collapsed at epoch 1.5** (checkpoint-500 salvageable, needs re-run with lower LR)
+- [ ] 7B LoRA adapter merged
+- [ ] Full dataset training (15K pairs) — pending 7B fix

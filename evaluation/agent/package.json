@@ -1,0 +1,20 @@
+{
+  "name": "pipe-sql-eval-agent",
+  "version": "1.0.0",
+  "description": "Agentic evaluation runner for pipe SQL model",
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "start": "tsx src/main.ts",
+    "benchmark": "tsx src/main.ts --benchmark",
+    "interactive": "tsx src/main.ts"
+  },
+  "dependencies": {
+    "openai": "^4.20.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.0",
+    "tsx": "^4.7.0",
+    "@types/node": "^20.10.0"
+  }
+}
