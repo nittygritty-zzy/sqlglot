@@ -1,0 +1,243 @@
+SELECT CONNECT_BY_ROOT x AS y
+SELECT BITMAP_BUCKET_NUMBER(32769)
+SELECT BITMAP_CONSTRUCT_AGG(value)
+SELECT SYSTIMESTAMP AT TIME ZONE 'UTC'
+SELECT x FROM t WHERE cond FOR UPDATE
+SELECT JSON_OBJECT(k1: v1 FORMAT JSON, k2: v2 FORMAT JSON)
+SELECT JSON_OBJECT('name': first_name || ' ' || last_name) FROM t
+SELECT * FROM TABLE(foo)
+SELECT a$x#b
+SELECT :OBJECT
+SELECT * FROM t FOR UPDATE
+SELECT * FROM t FOR UPDATE WAIT 5
+SELECT * FROM t FOR UPDATE NOWAIT
+SELECT * FROM t FOR UPDATE SKIP LOCKED
+SELECT * FROM t FOR UPDATE OF s.t.c, s.t.v
+SELECT * FROM t FOR UPDATE OF s.t.c, s.t.v NOWAIT
+SELECT * FROM t FOR UPDATE OF s.t.c, s.t.v SKIP LOCKED
+SELECT STANDARD_HASH('hello')
+SELECT STANDARD_HASH('hello', 'MD5')
+SELECT * FROM table_name@dblink_name.database_link_domain
+SELECT * FROM table_name SAMPLE (25) s
+SELECT COUNT(*) * 10 FROM orders SAMPLE (10) SEED (1)
+SELECT * FROM V$SESSION
+SELECT TO_DATE('January 15, 1989, 11:00 A.M.')
+SELECT INSTR(haystack, needle)
+SELECT (TO_TIMESTAMP('2025-12-30 20:00:00', 'YYYY-MM-DD HH24:MI:SS.FF6') - TO_TIMESTAMP('2025-12-29 14:30:00', 'YYYY-MM-DD HH24:MI:SS.FF6')) DAY TO SECOND
+SELECT (SYSTIMESTAMP - order_date) DAY(9) TO SECOND FROM orders
+SELECT (SYSTIMESTAMP - order_date) DAY(9) TO SECOND(3) FROM orders
+SELECT * FROM consumer LEFT JOIN groceries ON consumer.groceries_id = consumer.id PIVOT(MAX(type_id) FOR consumer_type IN (1, 2, 3, 4))
+SELECT * FROM test UNPIVOT INCLUDE NULLS (value FOR Description IN (col AS 'PREFIX ' || CHR(38) || ' SUFFIX'))
+SELECT last_name, employee_id, manager_id, LEVEL FROM employees START WITH employee_id = 100 CONNECT BY PRIOR employee_id = manager_id ORDER SIBLINGS BY last_name
+SELECT JSON_ARRAYAGG(JSON_OBJECT('RNK': RNK, 'RATING_CODE': RATING_CODE, 'DATE_VALUE': DATE_VALUE, 'AGENT_ID': AGENT_ID RETURNING CLOB) RETURNING CLOB) AS JSON_DATA FROM tablename
+SELECT JSON_ARRAY(FOO() FORMAT JSON, BAR() NULL ON NULL RETURNING CLOB STRICT)
+SELECT JSON_ARRAYAGG(FOO() FORMAT JSON ORDER BY bar NULL ON NULL RETURNING CLOB STRICT)
+SELECT COUNT(1) INTO V_Temp FROM TABLE(CAST(somelist AS data_list)) WHERE col LIKE '%contact'
+SELECT * FROM t WHERE c LIKE (:v)
+SELECT department_id INTO v_department_id FROM departments FETCH FIRST 1 ROWS ONLY
+SELECT department_id BULK COLLECT INTO v_department_ids FROM departments
+SELECT department_id, department_name BULK COLLECT INTO v_department_ids, v_department_names FROM departments
+SELECT MIN(column_name) KEEP (DENSE_RANK FIRST ORDER BY column_name DESC) FROM table_name
+SELECT TO_DATE('January 15, 1989, 11:00 A.M.', 'Month dd, YYYY, HH12:MI A.M.') FROM DUAL
+SELECT TRUNC(SYSDATE, 'DD')
+SELECT JSON_OBJECT('key1': emp.column1, 'key2': emp.column1) AS "emp_key" FROM emp
+SELECT JSON_OBJECTAGG(department_name: department_id) FROM dep WHERE id <= 30
+SELECT last_name, department_id, salary, MIN(salary) KEEP (DENSE_RANK FIRST ORDER BY commission_pct) OVER (PARTITION BY department_id) AS "Worst", MAX(salary) KEEP (DENSE_RANK LAST ORDER BY commission_pct) OVER (PARTITION BY department_id) AS "Best" FROM employees ORDER BY department_id, salary, last_name
+SELECT DISTINCT col1, col2 FROM table
+SELECT * FROM T ORDER BY I OFFSET NVL(:variable1, 10) ROWS FETCH NEXT NVL(:variable2, 10) ROWS ONLY
+SELECT * FROM t SAMPLE (0.25)
+SELECT TO_CHAR(-100, 'L99', 'NL_CURRENCY = '' AusDollars '' ')
+SELECT * FROM t START WITH col CONNECT BY NOCYCLE PRIOR col1 = col2
+SELECT DBMS_RANDOM.VALUE()
+SELECT TRIM('|' FROM '||Hello ||| world||')
+SELECT department_id, department_name INTO v_department_id, v_department_name FROM departments FETCH FIRST 1 ROWS ONLY
+SELECT * FROM test WHERE MOD(col1, 4) = 3
+SELECT CAST(NULL AS VARCHAR2(2328 CHAR)) AS COL1
+SELECT CAST(NULL AS VARCHAR2(2328 BYTE)) AS COL1
+SELECT TO_TIMESTAMP('2024-12-12 12:12:12.000000', 'YYYY-MM-DD HH24:MI:SS.FF6')
+SELECT TO_DATE('2024-12-12', 'YYYY-MM-DD')
+SELECT * FROM t ORDER BY a ASC, b ASC NULLS FIRST, c DESC NULLS LAST, d DESC
+SELECT /*+ ORDERED */ * FROM tbl
+SELECT /*+ ORDERED */ * /* test */ FROM tbl
+SELECT * FROM t FETCH FIRST 10 ROWS ONLY
+SELECT TO_TIMESTAMP('05 Dec 2000 10:00 AM', 'DD Mon YYYY HH12:MI AM')
+SELECT TO_TIMESTAMP('05 Dec 2000 10:00 PM', 'DD Mon YYYY HH12:MI PM')
+SELECT TO_TIMESTAMP('05 Dec 2000 10:00 A.M.', 'DD Mon YYYY HH12:MI A.M.')
+SELECT TO_TIMESTAMP('05 Dec 2000 10:00 P.M.', 'DD Mon YYYY HH12:MI P.M.')
+SELECT CUME_DIST(15, 0.05) WITHIN GROUP (ORDER BY col1, col2) FROM t
+SELECT DENSE_RANK(15, 0.05) WITHIN GROUP (ORDER BY col1, col2) FROM t
+SELECT RANK(15, 0.05) WITHIN GROUP (ORDER BY col1, col2) FROM t
+SELECT PERCENT_RANK(15, 0.05) WITHIN GROUP (ORDER BY col1, col2) FROM t
+SELECT e1.x, e2.x FROM e e1, e e2 WHERE e1.y (+) = e2.y
+SELECT e1.x, e2.x FROM e e1, e e2 WHERE e1.y = e2.y (+)
+SELECT /*+ USE_NL(A B) */ A.COL_TEST FROM TABLE_A A, TABLE_B B
+SELECT /*+ INDEX(v.j jhist_employee_ix (employee_id start_date)) */ * FROM v
+SELECT /*+ USE_NL(A B C) */ A.COL_TEST FROM TABLE_A A, TABLE_B B, TABLE_C C
+SELECT /*+ NO_INDEX(employees emp_empid) */ employee_id FROM employees WHERE employee_id > 200
+SELECT /*+ NO_INDEX_FFS(items item_order_ix) */ order_id FROM order_items items
+SELECT /*+ LEADING(e j) */ * FROM employees e, departments d, job_history j WHERE e.department_id = d.department_id AND e.hire_date = j.start_date
+INSERT /*+ APPEND */ INTO IAP_TBL (id, col1) VALUES (2, 'test2')
+INSERT /*+ APPEND_VALUES */ INTO dest_table VALUES (i, 'Value')
+INSERT /*+ APPEND(d) */ INTO dest d VALUES (i, 'Value')
+INSERT /*+ APPEND(d) */ INTO dest d (i, value) SELECT 1, 'value' FROM dual
+SELECT /*+ LEADING(departments employees) USE_NL(employees) */ * FROM employees JOIN departments ON employees.department_id = departments.department_id
+SELECT /*+ USE_NL(bbbbbbbbbbbbbbbbbbbbbbbb) LEADING(aaaaaaaaaaaaaaaaaaaaaaaa bbbbbbbbbbbbbbbbbbbbbbbb cccccccccccccccccccccccc dddddddddddddddddddddddd) INDEX(cccccccccccccccccccccccc) */ * FROM aaaaaaaaaaaaaaaaaaaaaaaa JOIN bbbbbbbbbbbbbbbbbbbbbbbb ON aaaaaaaaaaaaaaaaaaaaaaaa.id = bbbbbbbbbbbbbbbbbbbbbbbb.a_id JOIN cccccccccccccccccccccccc ON bbbbbbbbbbbbbbbbbbbbbbbb.id = cccccccccccccccccccccccc.b_id JOIN dddddddddddddddddddddddd ON cccccccccccccccccccccccc.id = dddddddddddddddddddddddd.c_id
+SELECT /*+ LEADING(departments employees) USE_NL(employees) select where group by is order by */ * FROM employees JOIN departments ON employees.department_id = departments.department_id
+SELECT /*+ LEADING(departments, employees) */ * FROM employees JOIN departments ON employees.department_id = departments.department_id
+SELECT /*+ LEADING(departments select) */ * FROM employees JOIN departments ON employees.department_id = departments.department_id
+SELECT x.* FROM example t, XMLTABLE(XMLNAMESPACES(DEFAULT 'http://example.com/default', 'http://example.com/ns1' AS "ns1"), '/root/data' PASSING t.xml COLUMNS id NUMBER PATH '@id', value VARCHAR2(100) PATH 'ns1:value/text()') x
+SELECT warehouse_name AS warehouse, warehouse2."Water", warehouse2."Rail" FROM warehouses, XMLTABLE('/Warehouse' PASSING warehouses.warehouse_spec COLUMNS "Water" VARCHAR2(6) PATH 'WaterAccess', "Rail" VARCHAR2(6) PATH 'RailAccess') warehouse2
+SELECT table_name, column_name, data_default FROM XMLTABLE('ROWSET/ROW' PASSING dbms_xmlgen.getxmltype('SELECT table_name, column_name, data_default FROM user_tab_columns') COLUMNS table_name VARCHAR2(128) PATH '*[1]', column_name VARCHAR2(128) PATH '*[2]', data_default VARCHAR2(2000) PATH '*[3]')
+SELECT * FROM sales_history MATCH_RECOGNIZE (PARTITION BY product ORDER BY tstamp MEASURES STRT.tstamp AS start_tstamp, LAST(UP.tstamp) AS peak_tstamp, LAST(DOWN.tstamp) AS end_tstamp, MATCH_NUMBER() AS mno ONE ROW PER MATCH AFTER MATCH SKIP TO LAST DOWN PATTERN (STRT UP+ FLAT* DOWN+) DEFINE UP AS UP.units_sold > PREV(UP.units_sold), FLAT AS FLAT.units_sold = PREV(FLAT.units_sold), DOWN AS DOWN.units_sold < PREV(DOWN.units_sold)) MR
+SELECT * FROM JSON_TABLE(foo FORMAT JSON, 'bla' ERROR ON ERROR NULL ON EMPTY COLUMNS(foo PATH 'bar'))
+SELECT CASE WHEN DBMS_LOB.GETLENGTH(info) < 32000 THEN DBMS_LOB.SUBSTR(info) END AS info_txt, info AS info_clob FROM schemaname.tablename ar INNER JOIN JSON_TABLE(:emps, '$[*]' COLUMNS(empno NUMBER PATH '$')) jt ON ar.empno = jt.empno
+SELECT * FROM JSON_TABLE(res, '$.info[*]' COLUMNS(tempid NUMBER PATH '$.tempid', NESTED PATH '$.calid[*]' COLUMNS(last_dt PATH '$.last_dt '))) src
+INSERT ALL INTO dest_tab1 (id, description) VALUES (id, description) INTO dest_tab2 (id, description) VALUES (id, description) INTO dest_tab3 (id, description) VALUES (id, description) SELECT id, description FROM source_tab
+INSERT ALL INTO pivot_dest (id, day, val) VALUES (id, 'mon', mon_val) INTO pivot_dest (id, day, val) VALUES (id, 'tue', tue_val) INTO pivot_dest (id, day, val) VALUES (id, 'wed', wed_val) INTO pivot_dest (id, day, val) VALUES (id, 'thu', thu_val) INTO pivot_dest (id, day, val) VALUES (id, 'fri', fri_val) SELECT * FROM pivot_source
+INSERT ALL WHEN id <= 3 THEN INTO dest_tab1 (id, description) VALUES (id, description) WHEN id BETWEEN 4 AND 7 THEN INTO dest_tab2 (id, description) VALUES (id, description) WHEN id >= 8 THEN INTO dest_tab3 (id, description) VALUES (id, description) SELECT id, description FROM source_tab
+INSERT ALL WHEN id <= 3 THEN INTO dest_tab1 (id, description) VALUES (id, description) WHEN id BETWEEN 4 AND 7 THEN INTO dest_tab2 (id, description) VALUES (id, description) WHEN 1 = 1 THEN INTO dest_tab3 (id, description) VALUES (id, description) SELECT id, description FROM source_tab
+INSERT FIRST WHEN id <= 3 THEN INTO dest_tab1 (id, description) VALUES (id, description) WHEN id <= 5 THEN INTO dest_tab2 (id, description) VALUES (id, description) ELSE INTO dest_tab3 (id, description) VALUES (id, description) SELECT id, description FROM source_tab
+INSERT FIRST WHEN id <= 3 THEN INTO dest_tab1 (id, description) VALUES (id, description) ELSE INTO dest_tab2 (id, description) VALUES (id, description) INTO dest_tab3 (id, description) VALUES (id, description) SELECT id, description FROM source_tab
+SELECT id, PRIOR name AS parent_name, name FROM tree CONNECT BY NOCYCLE PRIOR id = parent_id
+WITH t AS (SELECT 1 AS COL) SELECT col, ROWID FROM t WHERE ROWNUM = 1
+SELECT CHR(187 USING NCHAR_CS)
+SELECT CHR(187)
+SELECT a FROM t WHERE a IN (SELECT b FROM t2)
+SELECT a FROM t WHERE a NOT IN (SELECT b FROM t2)
+SELECT a FROM t WHERE EXISTS (SELECT 1 FROM t2 WHERE t2.b = t.a)
+SELECT a FROM t WHERE NOT EXISTS (SELECT 1 FROM t2 WHERE t2.b = t.a)
+SELECT a, (SELECT MAX(b) FROM t2 WHERE t2.id = t.id) AS max_b FROM t
+SELECT * FROM (SELECT a, b FROM t WHERE a > 0) sub
+SELECT * FROM t WHERE a > (SELECT AVG(a) FROM t)
+SELECT a FROM t WHERE a = ANY (SELECT b FROM t2)
+SELECT a FROM t WHERE a > ALL (SELECT b FROM t2)
+SELECT a, b FROM t WHERE (a, b) IN (SELECT c, d FROM t2)
+SELECT * FROM t WHERE a BETWEEN (SELECT MIN(b) FROM t2) AND (SELECT MAX(b) FROM t2)
+SELECT * FROM t t1 WHERE a = (SELECT MAX(a) FROM t t2 WHERE t2.b = t1.b)
+SELECT (SELECT COUNT(*) FROM t2) AS cnt FROM DUAL
+SELECT sub.a, sub.b FROM (SELECT a, b FROM t) sub
+SELECT * FROM t WHERE a IN (SELECT b FROM t2 WHERE c IN (SELECT d FROM t3))
+SELECT a, COUNT(*) FROM t GROUP BY a
+SELECT a, COUNT(*) AS cnt FROM t GROUP BY a HAVING COUNT(*) > 1
+SELECT a, SUM(b), AVG(c), MIN(d), MAX(e) FROM t GROUP BY a
+SELECT a, b, COUNT(*) FROM t GROUP BY a, b
+SELECT a, SUM(b) AS total FROM t GROUP BY a HAVING SUM(b) > 100
+SELECT COUNT(DISTINCT a) FROM t
+SELECT a, COUNT(*) FROM t GROUP BY ROLLUP(a)
+SELECT a, b, COUNT(*) FROM t GROUP BY CUBE(a, b)
+SELECT a, b, COUNT(*) FROM t GROUP BY GROUPING SETS((a), (b), ())
+SELECT a, b, SUM(c) FROM t GROUP BY a, ROLLUP(b)
+SELECT GROUPING(a), a, SUM(b) FROM t GROUP BY ROLLUP(a)
+SELECT a, SUM(CASE WHEN b > 0 THEN 1 ELSE 0 END) AS pos_cnt FROM t GROUP BY a
+SELECT a, LISTAGG(b, ',') WITHIN GROUP (ORDER BY b) AS vals FROM t GROUP BY a
+SELECT a, COUNT(*) FROM t GROUP BY a ORDER BY COUNT(*) DESC
+SELECT a, ROW_NUMBER() OVER (ORDER BY a) AS rn FROM t
+SELECT a, RANK() OVER (PARTITION BY b ORDER BY a) AS rnk FROM t
+SELECT a, DENSE_RANK() OVER (ORDER BY a DESC) AS drnk FROM t
+SELECT a, NTILE(4) OVER (ORDER BY a) AS quartile FROM t
+SELECT a, LAG(b) OVER (ORDER BY a) AS prev_b FROM t
+SELECT a, LAG(b, 2, 0) OVER (ORDER BY a) AS prev2_b FROM t
+SELECT a, LEAD(b) OVER (ORDER BY a) AS next_b FROM t
+SELECT a, LEAD(b, 1, 0) OVER (ORDER BY a) AS next_b FROM t
+SELECT a, FIRST_VALUE(b) OVER (PARTITION BY c ORDER BY a) AS first_b FROM t
+SELECT a, LAST_VALUE(b) OVER (PARTITION BY c ORDER BY a ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS last_b FROM t
+SELECT a, NTH_VALUE(b, 2) OVER (ORDER BY a) AS second_b FROM t
+SELECT a, SUM(b) OVER (ORDER BY a ROWS BETWEEN 1 PRECEDING AND 1 FOLLOWING) AS moving_sum FROM t
+SELECT a, AVG(b) OVER (ORDER BY a RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS cum_avg FROM t
+SELECT a, COUNT(*) OVER (PARTITION BY b) AS cnt, SUM(c) OVER (PARTITION BY b ORDER BY a) AS running_sum FROM t
+SELECT a, PERCENT_RANK() OVER (ORDER BY b) AS pct_rank FROM t
+SELECT a, CUME_DIST() OVER (ORDER BY b) AS cume FROM t
+SELECT a, RATIO_TO_REPORT(b) OVER () AS ratio FROM t
+SELECT a, ROW_NUMBER() OVER (PARTITION BY b ORDER BY c DESC NULLS LAST) AS rn FROM t
+SELECT a FROM t1 UNION SELECT a FROM t2
+SELECT a FROM t1 UNION ALL SELECT a FROM t2
+SELECT a FROM t1 INTERSECT SELECT a FROM t2
+SELECT a FROM t1 MINUS SELECT a FROM t2
+SELECT a, b FROM t1 UNION ALL SELECT a, b FROM t2 UNION ALL SELECT a, b FROM t3
+SELECT a FROM t1 INTERSECT SELECT a FROM t2 INTERSECT SELECT a FROM t3
+WITH cte AS (SELECT a, b FROM t) SELECT * FROM cte
+WITH cte1 AS (SELECT a FROM t), cte2 AS (SELECT b FROM t2) SELECT * FROM cte1, cte2
+WITH cte AS (SELECT a, b FROM t WHERE a > 0) SELECT cte.a, cte.b FROM cte WHERE b < 100
+WITH cte AS (SELECT a, SUM(b) AS total FROM t GROUP BY a) SELECT * FROM cte WHERE total > 100
+SELECT NVL(a, 0) FROM t
+SELECT NVL2(a, 1, 0) FROM t
+SELECT DECODE(status, 1, 'active', 2, 'inactive', 'unknown') FROM t
+SELECT NULLIF(a, b) FROM t
+SELECT COALESCE(a, b, c) FROM t
+SELECT GREATEST(a, b, c) FROM t
+SELECT LEAST(a, b, c) FROM t
+SELECT SUBSTR(name, 1, 5) FROM t
+SELECT REPLACE(name, 'old', 'new') FROM t
+SELECT UPPER(name) FROM t
+SELECT LOWER(name) FROM t
+SELECT INITCAP(name) FROM t
+SELECT LPAD(name, 10, '0') FROM t
+SELECT RPAD(name, 10, ' ') FROM t
+SELECT LTRIM(name) FROM t
+SELECT RTRIM(name) FROM t
+SELECT LENGTH(name) FROM t
+SELECT REGEXP_SUBSTR(name, '[A-Z]+') FROM t
+SELECT REGEXP_REPLACE(name, '[0-9]', '#') FROM t
+SELECT * FROM t WHERE REGEXP_LIKE(name, '^[A-Z].*')
+SELECT ROUND(amount, 2) FROM t
+SELECT TRUNC(amount, 2) FROM t
+SELECT ABS(amount) FROM t
+SELECT CEIL(amount) FROM t
+SELECT FLOOR(amount) FROM t
+SELECT SIGN(amount) FROM t
+SELECT POWER(a, 2) FROM t
+SELECT SQRT(a) FROM t
+SELECT MOD(a, 3) FROM t
+SELECT ADD_MONTHS(hire_date, 6) FROM t
+SELECT MONTHS_BETWEEN(end_date, start_date) FROM t
+SELECT EXTRACT(YEAR FROM hire_date) FROM t
+SELECT EXTRACT(MONTH FROM hire_date) FROM t
+SELECT LAST_DAY(hire_date) FROM t
+SELECT NEXT_DAY(hire_date, 'MONDAY') FROM t
+SELECT TO_CHAR(amount, '999,999.99') FROM t
+SELECT TO_NUMBER('123.45') FROM DUAL
+INSERT INTO t (a, b) VALUES (1, 2)
+INSERT INTO t (a, b) SELECT c, d FROM t2
+INSERT INTO t (a, b) SELECT c, d FROM t2 WHERE c > 0
+UPDATE t SET a = 1 WHERE b = 2
+UPDATE t SET a = (SELECT MAX(b) FROM t2 WHERE t2.id = t.id)
+DELETE FROM t WHERE a = 1
+DELETE FROM t WHERE a IN (SELECT b FROM t2)
+MERGE INTO target t USING source s ON (t.id = s.id) WHEN MATCHED THEN UPDATE SET t.val = s.val WHEN NOT MATCHED THEN INSERT (id, val) VALUES (s.id, s.val)
+MERGE INTO target t USING (SELECT id, val FROM source WHERE active = 1) s ON (t.id = s.id) WHEN MATCHED THEN UPDATE SET t.val = s.val
+SELECT CASE WHEN a > 0 THEN 'pos' WHEN a < 0 THEN 'neg' ELSE 'zero' END FROM t
+SELECT CASE a WHEN 1 THEN 'one' WHEN 2 THEN 'two' ELSE 'other' END FROM t
+SELECT CASE WHEN a > 0 THEN CASE WHEN b > 0 THEN 'both' ELSE 'a_only' END ELSE 'none' END FROM t
+SELECT a || ' ' || b AS full_name FROM t
+SELECT a || b || c || d FROM t
+SELECT CAST(a AS VARCHAR2(100)) FROM t
+SELECT CAST(a AS NUMBER(10, 2)) FROM t
+SELECT CAST(a AS DATE) FROM t
+SELECT a + INTERVAL '1' DAY FROM t
+SELECT a - INTERVAL '1' HOUR FROM t
+SELECT a + b * c - d / e FROM t
+SELECT * FROM t1 INNER JOIN t2 ON t1.id = t2.id
+SELECT * FROM t1 LEFT OUTER JOIN t2 ON t1.id = t2.id
+SELECT * FROM t1 RIGHT OUTER JOIN t2 ON t1.id = t2.id
+SELECT * FROM t1 FULL OUTER JOIN t2 ON t1.id = t2.id
+SELECT * FROM t1 CROSS JOIN t2
+SELECT * FROM t1 NATURAL JOIN t2
+SELECT * FROM t1 JOIN t2 ON t1.a = t2.a JOIN t3 ON t2.b = t3.b
+SELECT * FROM t1 LEFT JOIN t2 ON t1.id = t2.id LEFT JOIN t3 ON t2.id = t3.id
+SELECT * FROM t1, t2 WHERE t1.id = t2.id
+SELECT * FROM t WHERE a IS NULL
+SELECT * FROM t WHERE a IS NOT NULL
+SELECT * FROM t WHERE a BETWEEN 1 AND 10
+SELECT * FROM t WHERE a NOT BETWEEN 1 AND 10
+SELECT * FROM t WHERE a LIKE '%test%'
+SELECT * FROM t WHERE a NOT LIKE 'test%'
+SELECT * FROM t WHERE a IN (1, 2, 3)
+SELECT * FROM t WHERE a NOT IN (1, 2, 3)
+SELECT * FROM t WHERE (a = 1 OR b = 2) AND c = 3
+SELECT * FROM t WHERE a > 0 AND b < 100 OR c = 1
+SELECT * FROM t WHERE ROWNUM <= 10
+SELECT ROWNUM, a FROM t
+SELECT * FROM DUAL
+SELECT SYSDATE FROM DUAL
+SELECT USER FROM DUAL
+SELECT SYS_CONTEXT('USERENV', 'SESSION_USER') FROM DUAL
