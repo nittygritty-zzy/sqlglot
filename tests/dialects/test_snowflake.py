@@ -6056,6 +6056,20 @@ FROM SEMANTIC_VIEW(
         )
 
     def test_generator(self):
+        self.validate_identity("SELECT 1 FROM TABLE(GENERATOR(ROWCOUNT => 10))")
+        self.validate_identity("SELECT 1 FROM TABLE(GENERATOR(TIMELIMIT => 5))")
+        self.validate_identity("SELECT 1 FROM TABLE(GENERATOR(ROWCOUNT => 10, TIMELIMIT => 5))")
+
+        # Positional args are mapped to ROWCOUNT, TIMELIMIT in order
+        self.validate_identity(
+            "SELECT 1 FROM TABLE(GENERATOR(10))",
+            "SELECT 1 FROM TABLE(GENERATOR(ROWCOUNT => 10))",
+        )
+        self.validate_identity(
+            "SELECT 1 FROM TABLE(GENERATOR(10, 5))",
+            "SELECT 1 FROM TABLE(GENERATOR(ROWCOUNT => 10, TIMELIMIT => 5))",
+        )
+
         # Basic ROWCOUNT transpilation
         self.validate_all(
             "SELECT 1 FROM TABLE(GENERATOR(ROWCOUNT => 5))",
@@ -6248,6 +6262,15 @@ FROM SEMANTIC_VIEW(
             write={
                 "snowflake": "SELECT ARRAY_POSITION(2, [1, 2, 3])",
                 "duckdb": "SELECT ARRAY_POSITION([1, 2, 3], 2) - 1",
+            },
+        )
+
+    def test_array_slice(self):
+        self.validate_all(
+            "ARRAY_SLICE(arr, s, e)",
+            write={
+                "snowflake": "ARRAY_SLICE(arr, s, e)",
+                "duckdb": "ARRAY_SLICE(arr, CASE WHEN s >= 0 THEN s + 1 ELSE s END, CASE WHEN e < 0 THEN e - 1 ELSE e END)",
             },
         )
 
