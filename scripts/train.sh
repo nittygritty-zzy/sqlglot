@@ -19,9 +19,9 @@ GRAD_ACCUM=8
 NUM_EPOCHS=3
 LIMIT=2000
 TOOL_RATIO=0.3
-OUTPUT_DIR="finetuning_output"
-DATA_DIR="training_data_output"
-GOLDEN_PAIRS="validation_output/golden_pairs_consolidated.jsonl"
+OUTPUT_DIR="pipe_sql/finetuning_output"
+DATA_DIR="pipe_sql/training_output"
+GOLDEN_PAIRS="pipe_sql/validation_output/golden_pairs_consolidated.jsonl"
 SMOKE_TEST=false
 GENERATE_ONLY=false
 
@@ -65,7 +65,7 @@ if [ ${#DB_DIRS[@]} -eq 0 ]; then
     exit 1
 fi
 
-python -m training_data.generate \
+python -m pipe_sql.training.generate \
     --golden-pairs "$GOLDEN_PAIRS" \
     "${DB_DIRS[@]}" \
     --output-dir "$DATA_DIR" \
@@ -88,7 +88,7 @@ echo "  Epochs: $NUM_EPOCHS"
 echo "  Max seq length: $MAX_SEQ_LENGTH"
 echo "  Output: $OUTPUT_DIR"
 
-python -m finetuning.train \
+python -m pipe_sql.finetuning.train \
     --model-name "$MODEL_NAME" \
     --train-data "$DATA_DIR/train.jsonl" \
     --dev-data "$DATA_DIR/dev.jsonl" \
@@ -103,4 +103,4 @@ echo "=== Training Complete ==="
 echo "  Adapter saved to: $OUTPUT_DIR/final"
 echo ""
 echo "To merge adapter into base model:"
-echo "  python -m finetuning.train --merge --output-dir $OUTPUT_DIR"
+echo "  python -m pipe_sql.finetuning.train --merge --output-dir $OUTPUT_DIR"

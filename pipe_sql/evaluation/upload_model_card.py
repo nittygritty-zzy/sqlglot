@@ -181,7 +181,7 @@ Tables in database 'concert_singer':
 
 ### Inference
 
-For inference with the correct chat template, see the [evaluation server code](https://github.com/nittygritty-zzy/sqlglot/tree/main/evaluation/server) on GitHub.
+For inference with the correct chat template, see the [evaluation server code](https://github.com/nittygritty-zzy/sqlglot/tree/main/pipe_sql/evaluation/server) on GitHub.
 
 ## Reproducing the Benchmark
 
@@ -251,20 +251,20 @@ ls data/spider/database/ | wc -l  # ~166 databases (20 used by dev set)
 pip install huggingface_hub
 python -c "
 from huggingface_hub import snapshot_download
-snapshot_download('nittygritty-zzy/pipe-sql-1.5b', local_dir='finetuning_output/merged')
+snapshot_download('nittygritty-zzy/pipe-sql-1.5b', local_dir='pipe_sql/finetuning_output/merged')
 "
 
 # Option B: Use git-lfs
 git lfs install
-git clone https://huggingface.co/nittygritty-zzy/pipe-sql-1.5b finetuning_output/merged
+git clone https://huggingface.co/nittygritty-zzy/pipe-sql-1.5b pipe_sql/finetuning_output/merged
 ```
 
 ### Step 5: Install Node.js Agent Dependencies
 
 ```bash
-cd evaluation/agent
+cd pipe_sql/evaluation/agent
 npm install
-cd ../..
+cd ../../..
 ```
 
 ### Step 6: Run the Benchmark
@@ -273,10 +273,10 @@ cd ../..
 
 ```bash
 # Run all 1,034 questions (takes ~2 hours on RTX 4080)
-bash evaluation/run_all.sh
+bash pipe_sql/evaluation/run_all.sh
 
 # Smoke test with 5 questions first
-bash evaluation/run_all.sh --limit 5
+bash pipe_sql/evaluation/run_all.sh --limit 5
 ```
 
 This script:
@@ -289,36 +289,36 @@ This script:
 
 **Start the evaluation server:**
 ```bash
-# Default: loads model from finetuning_output/merged/
-python -m evaluation.server.app
+# Default: loads model from pipe_sql/finetuning_output/merged/
+python -m pipe_sql.evaluation.server.app
 
 # Custom model path:
-MODEL_PATH=path/to/model python -m evaluation.server.app
+MODEL_PATH=path/to/model python -m pipe_sql.evaluation.server.app
 ```
 
 Wait for `Server ready` in the logs, then in a separate terminal:
 
 **Run the agent benchmark:**
 ```bash
-cd evaluation/agent
+cd pipe_sql/evaluation/agent
 npx tsx src/main.ts --benchmark           # All 1,034 questions
 npx tsx src/main.ts --benchmark --limit 5 # Smoke test
 ```
 
 **Run single question interactively:**
 ```bash
-cd evaluation/agent
+cd pipe_sql/evaluation/agent
 npx tsx src/main.ts "How many singers do we have?" concert_singer
 ```
 
 **Evaluate results:**
 ```bash
-python evaluation/evaluate.py --results evaluation_output/results.json
+python pipe_sql/evaluation/evaluate.py --results pipe_sql/output/results.json
 ```
 
 ### Step 7: Review Results
 
-Results are saved to `evaluation_output/`:
+Results are saved to `pipe_sql/output/`:
 
 | File | Description |
 |------|-------------|
@@ -330,16 +330,16 @@ Results are saved to `evaluation_output/`:
 
 | Environment Variable | Default | Description |
 |---------------------|---------|-------------|
-| `MODEL_PATH` | `finetuning_output/merged` | Path to merged model directory |
+| `MODEL_PATH` | `pipe_sql/finetuning_output/merged` | Path to merged model directory |
 | `SPIDER_DB_DIR` | `data/spider/database` | Spider database directory |
 | `SPIDER_DIR` | `data/spider` | Spider data directory (contains dev.json) |
 | `PORT` | `8000` | Evaluation server port |
 | `SERVER_URL` | `http://localhost:8000` | Agent to server connection URL |
-| `OUTPUT_DIR` | `evaluation_output` | Agent output directory |
+| `OUTPUT_DIR` | `pipe_sql/output` | Agent output directory |
 
 ### Troubleshooting
 
-**Server fails to load model**: Ensure `finetuning_output/merged/` contains `config.json`, `model.safetensors`, and `tokenizer.json`. If using a different path, set `MODEL_PATH`.
+**Server fails to load model**: Ensure `pipe_sql/finetuning_output/merged/` contains `config.json`, `model.safetensors`, and `tokenizer.json`. If using a different path, set `MODEL_PATH`.
 
 **CUDA out of memory**: The 1.5B model needs ~3 GB VRAM in float16. Close other GPU processes or use `CUDA_VISIBLE_DEVICES=0` to select a specific GPU.
 

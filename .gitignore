@@ -149,8 +149,7 @@ sqlglot/_version.py
 # Benchmark datasets
 data/
 
-# Validation output
-validation_output/
-
-# Training data output
-training_data_output/
+# Pipe SQL working outputs
+pipe_sql/training_output/
+pipe_sql/finetuning_output/
+pipe_sql/finetuning_output_*/

@@ -3,12 +3,12 @@ set -e
 
 # Orchestrator: start server -> run agent benchmark -> evaluate
 # Usage:
-#   bash evaluation/run_all.sh                          # default: spider
-#   bash evaluation/run_all.sh --benchmark bird
-#   bash evaluation/run_all.sh --benchmark bird --limit 5
+#   bash pipe_sql/evaluation/run_all.sh                          # default: spider
+#   bash pipe_sql/evaluation/run_all.sh --benchmark bird
+#   bash pipe_sql/evaluation/run_all.sh --benchmark bird --limit 5
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 cd "$PROJECT_ROOT"
 
 # Parse arguments
@@ -27,7 +27,7 @@ while [[ $# -gt 0 ]]; do
             ;;
         *)
             echo "Unknown argument: $1"
-            echo "Usage: bash evaluation/run_all.sh [--benchmark spider|bird] [--limit N]"
+            echo "Usage: bash pipe_sql/evaluation/run_all.sh [--benchmark spider|bird] [--limit N]"
             exit 1
             ;;
     esac
@@ -58,7 +58,7 @@ echo ""
 
 # 1. Start Python server in background
 echo "[1/4] Starting evaluation server..."
-python -m evaluation.server.app &
+python -m pipe_sql.evaluation.server.app &
 SERVER_PID=$!
 echo "  Server PID: $SERVER_PID"
 
@@ -90,21 +90,21 @@ trap cleanup EXIT
 # 2. Install agent dependencies
 echo ""
 echo "[2/4] Installing agent dependencies..."
-cd "$PROJECT_ROOT/evaluation/agent"
+cd "$PROJECT_ROOT/pipe_sql/evaluation/agent"
 npm install --silent
 cd "$PROJECT_ROOT"
 
 # 3. Run agent benchmark
 echo ""
 echo "[3/4] Running agent benchmark ($AGENT_ARGS)..."
-cd "$PROJECT_ROOT/evaluation/agent"
+cd "$PROJECT_ROOT/pipe_sql/evaluation/agent"
 npx tsx src/main.ts $AGENT_ARGS
 cd "$PROJECT_ROOT"
 
 # 4. Run evaluation
 echo ""
 echo "[4/4] Running evaluation..."
-python evaluation/evaluate.py --results evaluation_output/results.json --db-dirs $DB_DIRS
+python -m pipe_sql.evaluation.evaluate --results pipe_sql/output/results.json --db-dirs $DB_DIRS
 
 echo ""
 echo "=== Pipeline Complete ==="

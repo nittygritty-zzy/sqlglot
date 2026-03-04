@@ -7,7 +7,7 @@ import os
 import random
 from collections import Counter
 
-from training_data.formatter import ChatSample
+from pipe_sql.training.formatter import ChatSample
 
 
 def _split_by_question_id(

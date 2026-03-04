@@ -10,7 +10,7 @@ import duckdb
 from pandas.testing import assert_frame_equal
 
 import sqlglot
-from pipe_decompiler import decompile
+from pipe_sql.decompiler import decompile
 from tests.helpers import (
     FIXTURES_DIR,
     SKIP_INTEGRATION,

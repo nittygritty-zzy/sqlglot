@@ -1,8 +1,8 @@
 """Fine-tune Qwen-2.5-Coder-7B on pipe SQL training data.
 
 Usage:
-    python -m finetuning.train [--flags]
-    python -m finetuning.train --merge --output-dir finetuning_output/final --merged-dir finetuning_output/merged
+    python -m pipe_sql.finetuning.train [--flags]
+    python -m pipe_sql.finetuning.train --merge --output-dir pipe_sql/finetuning_output/final --merged-dir pipe_sql/finetuning_output/merged
 """
 
 from __future__ import annotations
@@ -15,8 +15,8 @@ from peft import LoraConfig, PeftModel
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from trl import SFTConfig, SFTTrainer
 
-from finetuning.config import TrainConfig
-from finetuning.data import load_chat_dataset
+from pipe_sql.finetuning.config import TrainConfig
+from pipe_sql.finetuning.data import load_chat_dataset
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)

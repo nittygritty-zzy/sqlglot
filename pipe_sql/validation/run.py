@@ -41,7 +41,7 @@ def main():
     parser.add_argument(
         "--output",
         default=None,
-        help="Output JSON path (default: validation_output/<mode>/results.json)",
+        help="Output JSON path (default: pipe_sql/validation_output/<mode>/results.json)",
     )
     parser.add_argument(
         "--timeout",
@@ -64,7 +64,7 @@ def main():
         "--iteration",
         type=int,
         default=None,
-        help="Iteration number for output directory (e.g., --iteration 1 → validation_output/iteration_001/)",
+        help="Iteration number for output directory (e.g., --iteration 1 → pipe_sql/validation_output/iteration_001/)",
     )
 
     args = parser.parse_args()
@@ -72,7 +72,7 @@ def main():
     # Set up decompiler if not baseline
     decompiler = None
     if not args.baseline:
-        from pipe_decompiler import decompile
+        from pipe_sql.decompiler import decompile
 
         decompiler = decompile
 
@@ -81,11 +81,11 @@ def main():
         output_path = args.output
     elif args.iteration is not None:
         output_path = os.path.join(
-            "validation_output", f"iteration_{args.iteration:03d}", "results.json"
+            "pipe_sql/validation_output", f"iteration_{args.iteration:03d}", "results.json"
         )
     else:
         mode = "baseline" if args.baseline else "decompiler"
-        output_path = os.path.join("validation_output", mode, "results.json")
+        output_path = os.path.join("pipe_sql/validation_output", mode, "results.json")
 
     print("=== SQL Validation Loop ===")
     print(f"  Data:      {args.data}")

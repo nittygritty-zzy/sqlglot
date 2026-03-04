@@ -19,7 +19,7 @@ from enum import Enum, auto
 import sqlglot
 from sqlglot import exp
 
-from pipe_decompiler import decompile
+from pipe_sql.decompiler import decompile
 
 
 class Status(Enum):

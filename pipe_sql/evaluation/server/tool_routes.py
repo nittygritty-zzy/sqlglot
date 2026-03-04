@@ -1,4 +1,4 @@
-"""Tool execution routes reusing training_data/tool_executor.py functions."""
+"""Tool execution routes reusing pipe_sql/training/tool_executor.py functions."""
 
 from __future__ import annotations
 
@@ -8,8 +8,8 @@ import logging
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from training_data.schema_extractor import TableSchema
-from training_data.tool_executor import (
+from pipe_sql.training.schema_extractor import TableSchema
+from pipe_sql.training.tool_executor import (
     describe_table_result,
     execute_pipe_sql_result,
     list_tables_result,

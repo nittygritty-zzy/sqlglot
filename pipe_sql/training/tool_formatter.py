@@ -8,9 +8,9 @@ import random
 import sqlglot
 from sqlglot import exp
 
-from training_data.formatter import ChatSample
-from training_data.schema_extractor import TableSchema
-from training_data.tool_executor import (
+from pipe_sql.training.formatter import ChatSample
+from pipe_sql.training.schema_extractor import TableSchema
+from pipe_sql.training.tool_executor import (
     describe_table_result,
     execute_pipe_sql_result,
     list_tables_result,

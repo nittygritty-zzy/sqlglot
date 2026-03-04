@@ -9,8 +9,8 @@ import sqlite3
 import tempfile
 import unittest
 
-from training_data.formatter import SYSTEM_MESSAGE, ChatSample, format_step, format_trajectory
-from training_data.schema_extractor import (
+from pipe_sql.training.formatter import SYSTEM_MESSAGE, ChatSample, format_step, format_trajectory
+from pipe_sql.training.schema_extractor import (
     TableSchema,
     ColumnInfo,
     ForeignKey,
@@ -20,25 +20,25 @@ from training_data.schema_extractor import (
     build_tables_cache,
     build_db_path_cache,
 )
-from training_data.tool_executor import (
+from pipe_sql.training.tool_executor import (
     list_tables_result,
     describe_table_result,
     sample_data_result,
     execute_pipe_sql_result,
     validate_pipe_sql_result,
 )
-from training_data.tool_formatter import (
+from pipe_sql.training.tool_formatter import (
     TOOL_DEFINITIONS,
     TOOL_SYSTEM_MESSAGE,
     extract_referenced_tables,
     format_tool_calling_sample,
 )
-from training_data.trajectory import (
+from pipe_sql.training.trajectory import (
     TrajectoryStep,
     decompose_trajectory,
     _decompose_fallback,
 )
-from training_data.writer import write_output
+from pipe_sql.training.writer import write_output
 
 
 class TestSchemaExtractor(unittest.TestCase):
@@ -635,7 +635,7 @@ class TestGenerateCLI(unittest.TestCase):
             }) + "\n")
 
         output_dir = os.path.join(tmpdir, "output")
-        from training_data.generate import main
+        from pipe_sql.training.generate import main
 
         main([
             "--golden-pairs", pairs_path,
@@ -688,7 +688,7 @@ class TestGenerateCLI(unittest.TestCase):
                 }) + "\n")
 
         output_dir = os.path.join(tmpdir, "output")
-        from training_data.generate import main
+        from pipe_sql.training.generate import main
 
         main([
             "--golden-pairs", pairs_path,

@@ -11,8 +11,8 @@ class TrainConfig:
     model_name: str = "Qwen/Qwen2.5-Coder-7B-Instruct"
 
     # Data
-    train_data: str = "training_data_output/train.jsonl"
-    dev_data: str = "training_data_output/dev.jsonl"
+    train_data: str = "pipe_sql/training_output/train.jsonl"
+    dev_data: str = "pipe_sql/training_output/dev.jsonl"
     max_seq_length: int = 2048
     limit: t.Optional[int] = None
 
@@ -52,7 +52,7 @@ class TrainConfig:
     logging_steps: int = 10
 
     # Output
-    output_dir: str = "finetuning_output"
+    output_dir: str = "pipe_sql/finetuning_output"
     seed: int = 42
 
     # Merge mode

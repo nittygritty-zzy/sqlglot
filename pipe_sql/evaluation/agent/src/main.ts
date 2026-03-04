@@ -15,8 +15,8 @@ import type { BenchmarkQuestion, BenchmarkResult } from "./types.js";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const SERVER_URL = process.env.SERVER_URL || "http://localhost:8000";
-// Default output to project root's evaluation_output/
-const OUTPUT_DIR = process.env.OUTPUT_DIR || path.resolve(__dirname, "../../../evaluation_output");
+// Default output to pipe_sql/output/
+const OUTPUT_DIR = process.env.OUTPUT_DIR || path.resolve(__dirname, "../../../output");
 
 async function fetchQuestions(
   limit: number = 0,

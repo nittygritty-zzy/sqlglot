@@ -18,9 +18,9 @@ evaluate.py → transpile + execute + compare
 
 ## Prerequisites
 
-1. **Fine-tuned model** at `finetuning_output/merged/` (run `python -m finetuning.train --merge` first)
+1. **Fine-tuned model** at `pipe_sql/finetuning_output/merged/` (run `python -m pipe_sql.finetuning.train --merge` first)
 2. **Spider databases** at `data/spider/database/`
-3. **Python dependencies**: `pip install -r evaluation/requirements.txt`
+3. **Python dependencies**: `pip install -r pipe_sql/evaluation/requirements.txt`
 4. **Node.js** 18+ with npm
 
 ## Quick Start
@@ -28,36 +28,36 @@ evaluate.py → transpile + execute + compare
 ### Run full pipeline
 ```bash
 # All 1,034 questions
-bash evaluation/run_all.sh
+bash pipe_sql/evaluation/run_all.sh
 
 # Smoke test with 5 questions
-bash evaluation/run_all.sh --limit 5
+bash pipe_sql/evaluation/run_all.sh --limit 5
 ```
 
 ### Run components separately
 
 **Start server:**
 ```bash
-python -m evaluation.server.app
+python -m pipe_sql.evaluation.server.app
 # Server runs at http://localhost:8000
 ```
 
 **Run agent benchmark:**
 ```bash
-cd evaluation/agent
+cd pipe_sql/evaluation/agent
 npm install
 npx tsx src/main.ts --benchmark --limit 10
 ```
 
 **Run single question interactively:**
 ```bash
-cd evaluation/agent
+cd pipe_sql/evaluation/agent
 npx tsx src/main.ts "How many singers do we have?" concert_singer
 ```
 
 **Evaluate results:**
 ```bash
-python evaluation/evaluate.py --results evaluation_output/results.json
+python pipe_sql/evaluation/evaluate.py --results pipe_sql/output/results.json
 ```
 
 ## Configuration
@@ -66,18 +66,18 @@ Environment variables:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `MODEL_PATH` | `finetuning_output/merged` | Path to merged model |
+| `MODEL_PATH` | `pipe_sql/finetuning_output/merged` | Path to merged model |
 | `SPIDER_DB_DIR` | `data/spider/database` | Spider database directory |
 | `SPIDER_DIR` | `data/spider` | Spider data directory |
 | `SPIDER2_DB_DIR` | (none) | Optional Spider2-lite database directory |
 | `PORT` | `8000` | Server port |
 | `SERVER_URL` | `http://localhost:8000` | Agent → server URL |
-| `OUTPUT_DIR` | `evaluation_output` | Agent output directory |
+| `OUTPUT_DIR` | `pipe_sql/output` | Agent output directory |
 
 ## Output Files
 
 ```
-evaluation_output/
+pipe_sql/output/
 ├── results.json        # Agent predictions (from TypeScript agent)
 ├── eval_results.json   # Per-question evaluation details
 └── eval_summary.json   # Aggregate metrics
