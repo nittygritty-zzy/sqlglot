@@ -7,7 +7,7 @@ import sqlite3
 
 import sqlglot
 
-from training_data.schema_extractor import TableSchema, format_schema_compact
+from pipe_sql.training.schema_extractor import TableSchema, format_schema_compact
 
 
 def list_tables_result(tables: list[TableSchema]) -> str:

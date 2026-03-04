@@ -14,11 +14,11 @@ import sys
 import time
 
 # Add project root to path for imports when running standalone
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 import sqlglot
 
-from validation.compare import compare_with_tolerance
+from pipe_sql.validation.compare import compare_with_tolerance
 
 
 def transpile_pipe_sql(pipe_sql: str) -> str:
@@ -238,7 +238,7 @@ def main():
     parser = argparse.ArgumentParser(description="Evaluate pipe SQL predictions")
     parser.add_argument(
         "--results",
-        default="evaluation_output/results.json",
+        default="pipe_sql/output/results.json",
         help="Path to agent results JSON",
     )
     parser.add_argument(
@@ -249,7 +249,7 @@ def main():
     )
     parser.add_argument(
         "--output-dir",
-        default="evaluation_output",
+        default="pipe_sql/output",
         help="Output directory for evaluation results",
     )
     args = parser.parse_args()

@@ -19,12 +19,12 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
-from evaluation.server.benchmark_routes import load_bird_dev, load_spider_dev
-from evaluation.server.benchmark_routes import router as benchmark_router
-from evaluation.server.inference import PipeSQLModel
-from evaluation.server.tool_routes import db_path_cache, tables_cache
-from evaluation.server.tool_routes import router as tool_router
-from training_data.schema_extractor import build_db_path_cache, build_tables_cache
+from pipe_sql.evaluation.server.benchmark_routes import load_bird_dev, load_spider_dev
+from pipe_sql.evaluation.server.benchmark_routes import router as benchmark_router
+from pipe_sql.evaluation.server.inference import PipeSQLModel
+from pipe_sql.evaluation.server.tool_routes import db_path_cache, tables_cache
+from pipe_sql.evaluation.server.tool_routes import router as tool_router
+from pipe_sql.training.schema_extractor import build_db_path_cache, build_tables_cache
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s"
@@ -34,7 +34,7 @@ logger = logging.getLogger(__name__)
 # Model instance — loaded at startup
 model: PipeSQLModel | None = None
 
-MODEL_PATH = os.environ.get("MODEL_PATH", "finetuning_output/merged")
+MODEL_PATH = os.environ.get("MODEL_PATH", "pipe_sql/finetuning_output/merged")
 BENCHMARK = os.environ.get("BENCHMARK", "spider")
 SPIDER_DB_DIR = os.environ.get("SPIDER_DB_DIR", "data/spider/database")
 SPIDER_DIR = os.environ.get("SPIDER_DIR", "data/spider")
@@ -153,4 +153,4 @@ if __name__ == "__main__":
     import uvicorn
 
     port = int(os.environ.get("PORT", "8000"))
-    uvicorn.run("evaluation.server.app:app", host="0.0.0.0", port=port)
+    uvicorn.run("pipe_sql.evaluation.server.app:app", host="0.0.0.0", port=port)

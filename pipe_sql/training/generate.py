@@ -1,16 +1,16 @@
 """CLI entry point for training data generation.
 
 Usage:
-    python -m training_data.generate \
-        --golden-pairs validation_output/golden_pairs_consolidated.jsonl \
+    python -m pipe_sql.training.generate \
+        --golden-pairs pipe_sql/validation_output/golden_pairs_consolidated.jsonl \
         --db-dir data/spider/database --db-dir data/bird/databases \
-        --output-dir training_data_output
+        --output-dir pipe_sql/training_output
 
     # With tool-calling samples:
-    python -m training_data.generate \
-        --golden-pairs validation_output/golden_pairs_consolidated.jsonl \
+    python -m pipe_sql.training.generate \
+        --golden-pairs pipe_sql/validation_output/golden_pairs_consolidated.jsonl \
         --db-dir data/spider/database --db-dir data/bird/databases \
-        --output-dir training_data_output \
+        --output-dir pipe_sql/training_output \
         --tool-calling --tool-ratio 0.3
 """
 
@@ -21,11 +21,11 @@ import json
 import random
 import sys
 
-from training_data.formatter import ChatSample, format_trajectory
-from training_data.schema_extractor import build_db_path_cache, build_schema_cache, build_tables_cache
-from training_data.tool_formatter import format_tool_calling_sample
-from training_data.trajectory import decompose_trajectory
-from training_data.writer import write_output
+from pipe_sql.training.formatter import ChatSample, format_trajectory
+from pipe_sql.training.schema_extractor import build_db_path_cache, build_schema_cache, build_tables_cache
+from pipe_sql.training.tool_formatter import format_tool_calling_sample
+from pipe_sql.training.trajectory import decompose_trajectory
+from pipe_sql.training.writer import write_output
 
 
 def _load_golden_pairs(path: str) -> list[dict]:
@@ -59,7 +59,7 @@ def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description="Generate training data from golden pairs")
     parser.add_argument("--golden-pairs", required=True, help="Path to golden_pairs_consolidated.jsonl")
     parser.add_argument("--db-dir", action="append", required=True, help="DB directory (repeatable)")
-    parser.add_argument("--output-dir", default="training_data_output", help="Output directory")
+    parser.add_argument("--output-dir", default="pipe_sql/training_output", help="Output directory")
     parser.add_argument("--train-ratio", type=float, default=0.95, help="Train split ratio")
     parser.add_argument("--seed", type=int, default=42, help="Random seed")
     parser.add_argument("--limit", type=int, default=0, help="Process only N entries (0 = all)")

@@ -174,7 +174,7 @@ SQLGlot (v29.x) is a Python SQL parser/transpiler supporting 30+ dialects. It pr
 ### 4.2 Module Decomposition
 
 ```
-pipe_decompiler/
+pipe_sql/decompiler/
 ├── __init__.py
 ├── decompiler.py          # Top-level orchestrator
 ├── preprocessor.py        # SQLGlot qualify + unnest + simplify

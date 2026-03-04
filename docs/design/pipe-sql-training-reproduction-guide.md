@@ -31,7 +31,7 @@ source .venv/Scripts/activate   # Windows (Git Bash)
 ## Step 2: Install Dependencies
 
 ```bash
-# Install sqlglot in editable mode (puts training_data/ and finetuning/ on sys.path)
+# Install sqlglot in editable mode (puts pipe_sql/ on sys.path)
 uv pip install -e .
 
 # Install PyTorch with CUDA 12.6 support
@@ -77,21 +77,21 @@ This reads the 15,443 validated golden pairs (standard SQL ↔ pipe SQL) and gen
 
 ```bash
 # Full dataset (recommended for production training)
-python -m training_data.generate \
-    --golden-pairs validation_output/golden_pairs_consolidated.jsonl \
+python -m pipe_sql.training.generate \
+    --golden-pairs pipe_sql/validation_output/golden_pairs_consolidated.jsonl \
     --db-dir data/spider/database \
     --db-dir data/bird/train/train_databases \
     --db-dir data/bird/dev_20240627/dev_databases \
-    --output-dir training_data_output \
+    --output-dir pipe_sql/training_output \
     --tool-calling --tool-ratio 0.3
 
 # Subset for quick iteration (add --limit)
-python -m training_data.generate \
-    --golden-pairs validation_output/golden_pairs_consolidated.jsonl \
+python -m pipe_sql.training.generate \
+    --golden-pairs pipe_sql/validation_output/golden_pairs_consolidated.jsonl \
     --db-dir data/spider/database \
     --db-dir data/bird/train/train_databases \
     --db-dir data/bird/dev_20240627/dev_databases \
-    --output-dir training_data_output \
+    --output-dir pipe_sql/training_output \
     --tool-calling --tool-ratio 0.3 \
     --limit 2000
 ```
@@ -148,16 +148,16 @@ bash scripts/train.sh
 Validates the pipeline works end-to-end. Use a small dataset generated with `--limit 2000`:
 
 ```bash
-python -m finetuning.train \
+python -m pipe_sql.finetuning.train \
     --model-name Qwen/Qwen2.5-Coder-1.5B-Instruct \
-    --train-data training_data_output/train.jsonl \
-    --dev-data training_data_output/dev.jsonl \
+    --train-data pipe_sql/training_output/train.jsonl \
+    --dev-data pipe_sql/training_output/dev.jsonl \
     --max-seq-length 4096 \
     --per-device-train-batch-size 4 \
     --gradient-accumulation-steps 4 \
     --num-epochs 1 \
     --no-4bit \
-    --output-dir finetuning_output_smoke
+    --output-dir pipe_sql/finetuning_output_smoke
 ```
 
 Expected: loss drops from ~2.1 to ~0.2, token accuracy rises to ~96%.
@@ -165,16 +165,16 @@ Expected: loss drops from ~2.1 to ~0.2, token accuracy rises to ~96%.
 #### 5b. Full 1.5B Training (recommended: full dataset, 2 epochs)
 
 ```bash
-python -m finetuning.train \
+python -m pipe_sql.finetuning.train \
     --model-name Qwen/Qwen2.5-Coder-1.5B-Instruct \
-    --train-data training_data_output/train.jsonl \
-    --dev-data training_data_output/dev.jsonl \
+    --train-data pipe_sql/training_output/train.jsonl \
+    --dev-data pipe_sql/training_output/dev.jsonl \
     --max-seq-length 4096 \
     --per-device-train-batch-size 4 \
     --gradient-accumulation-steps 8 \
     --num-epochs 2 \
     --no-4bit \
-    --output-dir finetuning_output_1.5b
+    --output-dir pipe_sql/finetuning_output_1.5b
 ```
 
 #### 5c. 7B QLoRA Training (recommended: full dataset, 2 epochs)
@@ -182,10 +182,10 @@ python -m finetuning.train \
 For the full-size model using 4-bit quantization to fit in 16 GB VRAM:
 
 ```bash
-python -m finetuning.train \
+python -m pipe_sql.finetuning.train \
     --model-name Qwen/Qwen2.5-Coder-7B-Instruct \
-    --train-data training_data_output/train.jsonl \
-    --dev-data training_data_output/dev.jsonl \
+    --train-data pipe_sql/training_output/train.jsonl \
+    --dev-data pipe_sql/training_output/dev.jsonl \
     --max-seq-length 4096 \
     --per-device-train-batch-size 1 \
     --gradient-accumulation-steps 32 \
@@ -194,7 +194,7 @@ python -m finetuning.train \
     --load-in-4bit \
     --save-steps 1000 \
     --eval-steps 1000 \
-    --output-dir finetuning_output_7b
+    --output-dir pipe_sql/finetuning_output_7b
 ```
 
 > **Important**: The lower learning rate (5e-5 vs default 2e-4) is critical for 7B stability. An earlier run with 2e-4 collapsed to NaN at epoch ~1.5. See the Troubleshooting section for details.
@@ -262,14 +262,14 @@ After training, merge the LoRA adapter into the base model for standalone infere
 
 ```bash
 # For 1.5B model
-python -m finetuning.train --merge \
+python -m pipe_sql.finetuning.train --merge \
     --model-name Qwen/Qwen2.5-Coder-1.5B-Instruct \
-    --output-dir finetuning_output_1.5b
+    --output-dir pipe_sql/finetuning_output_1.5b
 
 # For 7B model
-python -m finetuning.train --merge \
+python -m pipe_sql.finetuning.train --merge \
     --model-name Qwen/Qwen2.5-Coder-7B-Instruct \
-    --output-dir finetuning_output_7b
+    --output-dir pipe_sql/finetuning_output_7b
 ```
 
 The merged model is saved to `<output-dir>/merged/` and can be loaded directly with `AutoModelForCausalLM.from_pretrained()`.
@@ -340,9 +340,9 @@ The model weights went to NaN at step 680 and remained dead for the remaining ~6
 
 **Salvageable**: The **checkpoint-500** (before collapse) is still viable — eval_loss=0.224, accuracy=95.8%. To use it:
 ```bash
-python -m finetuning.train --merge \
+python -m pipe_sql.finetuning.train --merge \
     --model-name Qwen/Qwen2.5-Coder-7B-Instruct \
-    --output-dir finetuning_output_7b \
+    --output-dir pipe_sql/finetuning_output_7b \
     --checkpoint checkpoint-500
 ```
 
@@ -373,33 +373,38 @@ With 7.7x more data, we expect:
 
 ```
 sqlglot/
-├── validation_output/
-│   └── golden_pairs_consolidated.jsonl   # 15,443 validated (gold_sql, pipe_sql) pairs
-├── training_data/
-│   ├── __main__.py                       # Entry: python -m training_data.generate
-│   ├── generate.py                       # Main data generation pipeline
-│   ├── formatter.py                      # Chat sample formatting (incremental trajectory)
-│   ├── tool_formatter.py                 # Tool-calling sample generation
-│   ├── trajectory.py                     # Pipe query → step decomposition
-│   ├── schema_extractor.py              # SQLite schema → text representation
-│   ├── tool_executor.py                 # Simulated tool execution for training
-│   └── writer.py                        # Train/dev split and JSONL output
-├── finetuning/
-│   ├── train.py                          # Main fine-tuning script
-│   ├── config.py                         # TrainConfig dataclass with CLI parsing
-│   └── data.py                           # JSONL dataset loader
+├── pipe_sql/
+│   ├── decompiler/                       # Standard SQL → pipe SQL decompiler
+│   ├── validation/                       # Validation loop runner
+│   ├── training/
+│   │   ├── __main__.py                   # Entry: python -m pipe_sql.training.generate
+│   │   ├── generate.py                   # Main data generation pipeline
+│   │   ├── formatter.py                  # Chat sample formatting (incremental trajectory)
+│   │   ├── tool_formatter.py             # Tool-calling sample generation
+│   │   ├── trajectory.py                 # Pipe query → step decomposition
+│   │   ├── schema_extractor.py           # SQLite schema → text representation
+│   │   ├── tool_executor.py              # Simulated tool execution for training
+│   │   └── writer.py                     # Train/dev split and JSONL output
+│   ├── finetuning/
+│   │   ├── train.py                      # Main fine-tuning script
+│   │   ├── config.py                     # TrainConfig dataclass with CLI parsing
+│   │   └── data.py                       # JSONL dataset loader
+│   ├── evaluation/                       # Evaluation server + agent
+│   ├── validation_output/                # Validated golden pairs
+│   │   └── golden_pairs_consolidated.jsonl  # 15,443 validated (gold_sql, pipe_sql) pairs
+│   ├── training_output/                  # Generated training data (not committed)
+│   │   ├── train.jsonl
+│   │   ├── dev.jsonl
+│   │   └── stats.json
+│   ├── finetuning_output/                # Training outputs (not committed)
+│   │   ├── checkpoint-*/                 # Intermediate checkpoints
+│   │   ├── final/                        # Final LoRA adapter
+│   │   └── merged/                       # Merged standalone model
+│   └── output/                           # Evaluation output (not committed)
 ├── scripts/
 │   ├── setup_data.sh                     # Downloads Spider 1.0
 │   ├── setup_bird_data.sh                # Downloads BIRD dev + train
 │   └── train.sh                          # One-command data gen + training
-├── training_data_output/                 # Generated training data (not committed)
-│   ├── train.jsonl
-│   ├── dev.jsonl
-│   └── stats.json
-├── finetuning_output/                    # Training outputs (not committed)
-│   ├── checkpoint-*/                     # Intermediate checkpoints
-│   ├── final/                            # Final LoRA adapter
-│   └── merged/                           # Merged standalone model
 └── docs/design/
     ├── pipe-sql-fine-tuning-design-doc.md
     ├── pipe-sql-decompiler-design-doc.md
@@ -417,7 +422,7 @@ sqlglot/
 
 **Cause**: bitsandbytes 4-bit quantization produces BFloat16 parameters, which are incompatible with the FP16 AMP gradient scaler.
 
-**Fix**: The training script automatically detects this and uses `bf16=True` when `--load-in-4bit` is set on CUDA. If you see this error, ensure you're using the latest `finetuning/train.py`.
+**Fix**: The training script automatically detects this and uses `bf16=True` when `--load-in-4bit` is set on CUDA. If you see this error, ensure you're using the latest `pipe_sql/finetuning/train.py`.
 
 ### Model Loading on CPU Instead of GPU
 
@@ -435,9 +440,9 @@ sqlglot/
 
 **Fix**: Always pass `--model-name` matching the model used for training:
 ```bash
-python -m finetuning.train --merge \
+python -m pipe_sql.finetuning.train --merge \
     --model-name Qwen/Qwen2.5-Coder-1.5B-Instruct \
-    --output-dir finetuning_output
+    --output-dir pipe_sql/finetuning_output
 ```
 
 ### 7B QLoRA Training Collapse (Loss → NaN)
@@ -449,10 +454,10 @@ python -m finetuning.train --merge \
 **Fix**: Apply all three mitigations:
 
 ```bash
-python -m finetuning.train \
+python -m pipe_sql.finetuning.train \
     --model-name Qwen/Qwen2.5-Coder-7B-Instruct \
-    --train-data training_data_output/train.jsonl \
-    --dev-data training_data_output/dev.jsonl \
+    --train-data pipe_sql/training_output/train.jsonl \
+    --dev-data pipe_sql/training_output/dev.jsonl \
     --max-seq-length 4096 \
     --per-device-train-batch-size 1 \
     --gradient-accumulation-steps 32 \
@@ -461,7 +466,7 @@ python -m finetuning.train \
     --load-in-4bit \
     --save-steps 500 \
     --eval-steps 500 \
-    --output-dir finetuning_output_7b
+    --output-dir pipe_sql/finetuning_output_7b
 ```
 
 Key changes from the failed run:
@@ -493,7 +498,7 @@ huggingface-cli login
 - [x] Training data generated from golden pairs
 - [x] Smoke test passed (1.5B, 1 epoch — loss 2.13→0.20, accuracy 96.1%)
 - [x] Full 1.5B training completed (3 epochs — eval_loss=0.191, accuracy 95.8%)
-- [x] 1.5B LoRA adapter merged (`finetuning_output/merged/`)
+- [x] 1.5B LoRA adapter merged (`pipe_sql/finetuning_output/merged/`)
 - [ ] 7B QLoRA training — **collapsed at epoch 1.5** (checkpoint-500 salvageable, needs re-run with lower LR)
 - [ ] 7B LoRA adapter merged
 - [ ] Full dataset training (15K pairs) — pending 7B fix

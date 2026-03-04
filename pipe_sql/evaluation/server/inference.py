@@ -11,7 +11,7 @@ import logging
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
-from evaluation.server.chat_template import format_messages, parse_assistant_response
+from pipe_sql.evaluation.server.chat_template import format_messages, parse_assistant_response
 
 logger = logging.getLogger(__name__)
 

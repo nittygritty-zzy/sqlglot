@@ -964,7 +964,7 @@ If prefix N is valid but prefix N+1 is not, the bug is in the Nth pipe operator 
 Each validation run produces:
 
 ```
-validation_output/
+pipe_sql/validation_output/
 ├── iteration_001/
 │   ├── results.json          # Full per-query results (ValidationRecord array)
 │   ├── summary.txt           # Stratified match rates

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from training_data.trajectory import TrajectoryStep
+from pipe_sql.training.trajectory import TrajectoryStep
 
 SYSTEM_MESSAGE = (
     "You are a SQL assistant that builds pipe SQL queries incrementally. "

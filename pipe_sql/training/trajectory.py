@@ -6,9 +6,9 @@ from dataclasses import dataclass
 
 import sqlglot
 
-from pipe_decompiler.emitter import emit_pipe_query
-from pipe_decompiler.result import PipeOpType, PipeQuery
-from pipe_decompiler.serializer import serialize
+from pipe_sql.decompiler.emitter import emit_pipe_query
+from pipe_sql.decompiler.result import PipeOpType, PipeQuery
+from pipe_sql.decompiler.serializer import serialize
 
 
 @dataclass
