@@ -2,24 +2,58 @@
 set -e
 
 # Orchestrator: start server -> run agent benchmark -> evaluate
-# Usage: bash evaluation/run_all.sh [--limit N]
+# Usage:
+#   bash evaluation/run_all.sh                          # default: spider
+#   bash evaluation/run_all.sh --benchmark bird
+#   bash evaluation/run_all.sh --benchmark bird --limit 5
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$PROJECT_ROOT"
 
-LIMIT="${1:---limit}"
-LIMIT_N="${2:-0}"
+# Parse arguments
+BENCHMARK="spider"
+LIMIT_N=0
 
-# Parse --limit flag
-if [ "$LIMIT" = "--limit" ] && [ "$LIMIT_N" != "0" ]; then
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --benchmark)
+            BENCHMARK="$2"
+            shift 2
+            ;;
+        --limit)
+            LIMIT_N="$2"
+            shift 2
+            ;;
+        *)
+            echo "Unknown argument: $1"
+            echo "Usage: bash evaluation/run_all.sh [--benchmark spider|bird] [--limit N]"
+            exit 1
+            ;;
+    esac
+done
+
+# Build agent args
+if [ "$LIMIT_N" != "0" ]; then
     AGENT_ARGS="--benchmark --limit $LIMIT_N"
 else
     AGENT_ARGS="--benchmark"
 fi
 
+# Set benchmark-specific env vars and db dirs
+export BENCHMARK
+if [ "$BENCHMARK" = "bird" ]; then
+    export BIRD_DB_DIR="${BIRD_DB_DIR:-data/bird/dev_20240627/dev_databases}"
+    export BIRD_DIR="${BIRD_DIR:-data/bird/dev_20240627}"
+    DB_DIRS="$BIRD_DB_DIR"
+else
+    DB_DIRS="${SPIDER_DB_DIR:-data/spider/database}"
+fi
+
 echo "=== Pipe SQL Evaluation Pipeline ==="
 echo "Project root: $PROJECT_ROOT"
+echo "Benchmark: $BENCHMARK"
+echo "DB dirs: $DB_DIRS"
 echo ""
 
 # 1. Start Python server in background
@@ -70,7 +104,7 @@ cd "$PROJECT_ROOT"
 # 4. Run evaluation
 echo ""
 echo "[4/4] Running evaluation..."
-python evaluation/evaluate.py --results evaluation_output/results.json
+python evaluation/evaluate.py --results evaluation_output/results.json --db-dirs $DB_DIRS
 
 echo ""
 echo "=== Pipeline Complete ==="

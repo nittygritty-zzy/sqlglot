@@ -8,8 +8,11 @@
 
 import * as fs from "fs";
 import * as path from "path";
+import { fileURLToPath } from "url";
 import { runAgent } from "./agent.js";
 import type { BenchmarkQuestion, BenchmarkResult } from "./types.js";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const SERVER_URL = process.env.SERVER_URL || "http://localhost:8000";
 // Default output to project root's evaluation_output/
@@ -53,10 +56,10 @@ async function runBenchmark(limit: number = 0): Promise<void> {
     );
 
     try {
-      const result = await runAgent(q.question, q.db_id);
+      const result = await runAgent(q.question, q.db_id, q.evidence);
       const durationMs = Date.now() - qStart;
 
-      results.push({
+      const benchmarkResult: BenchmarkResult = {
         id: q.id,
         question: q.question,
         db_id: q.db_id,
@@ -67,7 +70,11 @@ async function runBenchmark(limit: number = 0): Promise<void> {
         duration_ms: durationMs,
         status: result.status,
         error: result.error,
-      });
+      };
+      if (q.evidence) benchmarkResult.evidence = q.evidence;
+      if (q.difficulty) benchmarkResult.difficulty = q.difficulty;
+
+      results.push(benchmarkResult);
 
       const sqlPreview = result.predictedPipeSQL
         ? result.predictedPipeSQL.slice(0, 60) + "..."
@@ -77,7 +84,7 @@ async function runBenchmark(limit: number = 0): Promise<void> {
       );
     } catch (err) {
       const durationMs = Date.now() - qStart;
-      results.push({
+      const errorResult: BenchmarkResult = {
         id: q.id,
         question: q.question,
         db_id: q.db_id,
@@ -88,7 +95,11 @@ async function runBenchmark(limit: number = 0): Promise<void> {
         duration_ms: durationMs,
         status: "error",
         error: String(err),
-      });
+      };
+      if (q.evidence) errorResult.evidence = q.evidence;
+      if (q.difficulty) errorResult.difficulty = q.difficulty;
+
+      results.push(errorResult);
       console.log(`  -> ERROR: ${err}`);
     }
   }

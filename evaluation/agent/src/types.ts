@@ -5,6 +5,8 @@ export interface BenchmarkQuestion {
   db_id: string;
   gold_sql: string;
   source: string;
+  evidence?: string;
+  difficulty?: string;
 }
 
 /** Result for a single benchmark question. */
@@ -19,6 +21,8 @@ export interface BenchmarkResult {
   duration_ms: number;
   status: "success" | "timeout" | "error" | "no_prediction";
   error?: string;
+  evidence?: string;
+  difficulty?: string;
 }
 
 export interface ConversationMessage {

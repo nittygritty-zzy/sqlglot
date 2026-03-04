@@ -143,6 +143,9 @@ def run_evaluation(
             print(f"  Evaluating {i + 1}/{len(results)}...")
 
         eval_result = evaluate_single(result, db_dirs)
+        # Carry over difficulty from agent results
+        if "difficulty" in result:
+            eval_result["difficulty"] = result["difficulty"]
         eval_results.append(eval_result)
 
     elapsed = time.time() - start_time
@@ -160,6 +163,25 @@ def run_evaluation(
 
     accuracy = matches / denominator if denominator > 0 else 0.0
 
+    # Per-difficulty breakdown (if difficulty data present)
+    difficulty_breakdown = {}
+    has_difficulty = any(r.get("difficulty") for r in eval_results)
+    if has_difficulty:
+        for r in eval_results:
+            diff = r.get("difficulty", "unknown") or "unknown"
+            if diff not in difficulty_breakdown:
+                difficulty_breakdown[diff] = {"total": 0, "match": 0, "gold_error": 0}
+            difficulty_breakdown[diff]["total"] += 1
+            if r["status"] == "match":
+                difficulty_breakdown[diff]["match"] += 1
+            elif r["status"] == "gold_error":
+                difficulty_breakdown[diff]["gold_error"] += 1
+
+        for diff, stats in difficulty_breakdown.items():
+            denom = stats["total"] - stats["gold_error"]
+            stats["denominator"] = denom
+            stats["accuracy"] = round(stats["match"] / denom, 4) if denom > 0 else 0.0
+
     summary = {
         "total_questions": total,
         "execution_accuracy": round(accuracy, 4),
@@ -169,6 +191,8 @@ def run_evaluation(
         "status_breakdown": statuses,
         "evaluation_time_s": round(elapsed, 1),
     }
+    if difficulty_breakdown:
+        summary["difficulty_breakdown"] = difficulty_breakdown
 
     # Write outputs
     os.makedirs(output_dir, exist_ok=True)
@@ -194,6 +218,17 @@ def run_evaluation(
         pct = count / total * 100
         print(f"    {status:20s} {count:4d} ({pct:.1f}%)")
     print(f"{'=' * 50}")
+    if difficulty_breakdown:
+        print(f"  Accuracy by difficulty:")
+        for diff in ["simple", "moderate", "challenging"]:
+            if diff in difficulty_breakdown:
+                stats = difficulty_breakdown[diff]
+                print(f"    {diff:15s} {stats['match']}/{stats['denominator']} ({stats['accuracy']:.1%})")
+        # Print any remaining difficulties not in the standard set
+        for diff, stats in sorted(difficulty_breakdown.items()):
+            if diff not in ("simple", "moderate", "challenging"):
+                print(f"    {diff:15s} {stats['match']}/{stats['denominator']} ({stats['accuracy']:.1%})")
+        print(f"{'=' * 50}")
     print(f"  Evaluation time: {elapsed:.1f}s")
     print(f"  Results: {eval_path}")
     print(f"  Summary: {summary_path}")

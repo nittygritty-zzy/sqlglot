@@ -1,0 +1,38 @@
+{
+  "total_questions": 1534,
+  "execution_accuracy": 0.1904,
+  "matches": 292,
+  "denominator": 1534,
+  "gold_errors_excluded": 0,
+  "status_breakdown": {
+    "transpile_error": 54,
+    "exec_error": 737,
+    "mismatch": 439,
+    "match": 292,
+    "no_prediction": 12
+  },
+  "evaluation_time_s": 629.8,
+  "difficulty_breakdown": {
+    "simple": {
+      "total": 925,
+      "match": 240,
+      "gold_error": 0,
+      "denominator": 925,
+      "accuracy": 0.2595
+    },
+    "moderate": {
+      "total": 464,
+      "match": 44,
+      "gold_error": 0,
+      "denominator": 464,
+      "accuracy": 0.0948
+    },
+    "challenging": {
+      "total": 145,
+      "match": 8,
+      "gold_error": 0,
+      "denominator": 145,
+      "accuracy": 0.0552
+    }
+  }
+}

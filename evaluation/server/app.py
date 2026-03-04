@@ -19,7 +19,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
-from evaluation.server.benchmark_routes import load_spider_dev
+from evaluation.server.benchmark_routes import load_bird_dev, load_spider_dev
 from evaluation.server.benchmark_routes import router as benchmark_router
 from evaluation.server.inference import PipeSQLModel
 from evaluation.server.tool_routes import db_path_cache, tables_cache
@@ -35,8 +35,11 @@ logger = logging.getLogger(__name__)
 model: PipeSQLModel | None = None
 
 MODEL_PATH = os.environ.get("MODEL_PATH", "finetuning_output/merged")
+BENCHMARK = os.environ.get("BENCHMARK", "spider")
 SPIDER_DB_DIR = os.environ.get("SPIDER_DB_DIR", "data/spider/database")
 SPIDER_DIR = os.environ.get("SPIDER_DIR", "data/spider")
+BIRD_DB_DIR = os.environ.get("BIRD_DB_DIR", "data/bird/dev_20240627/dev_databases")
+BIRD_DIR = os.environ.get("BIRD_DIR", "data/bird/dev_20240627")
 
 
 @asynccontextmanager
@@ -44,13 +47,17 @@ async def lifespan(app: FastAPI):
     """Load model and caches at startup."""
     global model
 
-    # Build DB caches
-    logger.info(f"Building schema caches from {SPIDER_DB_DIR}")
-    db_dirs = [SPIDER_DB_DIR]
-    # Also check for Spider2-lite databases
-    spider2_dir = os.environ.get("SPIDER2_DB_DIR", "")
-    if spider2_dir and os.path.isdir(spider2_dir):
-        db_dirs.append(spider2_dir)
+    # Build DB caches based on benchmark
+    if BENCHMARK == "bird":
+        logger.info(f"Using BIRD benchmark, db_dir={BIRD_DB_DIR}")
+        db_dirs = [BIRD_DB_DIR]
+    else:
+        logger.info(f"Using Spider benchmark, db_dir={SPIDER_DB_DIR}")
+        db_dirs = [SPIDER_DB_DIR]
+        # Also check for Spider2-lite databases
+        spider2_dir = os.environ.get("SPIDER2_DB_DIR", "")
+        if spider2_dir and os.path.isdir(spider2_dir):
+            db_dirs.append(spider2_dir)
 
     tc = build_tables_cache(db_dirs)
     dpc = build_db_path_cache(db_dirs)
@@ -59,7 +66,10 @@ async def lifespan(app: FastAPI):
     logger.info(f"Cached {len(tables_cache)} database schemas, {len(db_path_cache)} db paths")
 
     # Load benchmark questions
-    load_spider_dev(SPIDER_DIR)
+    if BENCHMARK == "bird":
+        load_bird_dev(BIRD_DIR)
+    else:
+        load_spider_dev(SPIDER_DIR)
 
     # Load model
     logger.info(f"Loading model from {MODEL_PATH}")

@@ -39,15 +39,21 @@ export interface AgentResult {
 export async function runAgent(
   question: string,
   dbId: string,
+  evidence?: string,
 ): Promise<AgentResult> {
+  let userContent = `Database: ${dbId}\nQuestion: ${question}`;
+  if (evidence) {
+    userContent += `\nHint: ${evidence}`;
+  }
+
   const messages: ChatCompletionMessageParam[] = [
     { role: "system", content: SYSTEM_PROMPT },
-    { role: "user", content: `Database: ${dbId}\nQuestion: ${question}` },
+    { role: "user", content: userContent },
   ];
 
   const conversation: ConversationMessage[] = [
     { role: "system", content: SYSTEM_PROMPT },
-    { role: "user", content: `Database: ${dbId}\nQuestion: ${question}` },
+    { role: "user", content: userContent },
   ];
 
   let numTurns = 0;
