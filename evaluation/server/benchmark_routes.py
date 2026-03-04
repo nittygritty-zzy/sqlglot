@@ -40,6 +40,32 @@ def load_spider_dev(spider_dir: str = "data/spider"):
     logger.info(f"Loaded {len(_questions)} Spider dev questions")
 
 
+def load_bird_dev(bird_dir: str = "data/bird/dev_20240627"):
+    """Load BIRD dev questions."""
+    global _questions
+    dev_path = os.path.join(bird_dir, "dev.json")
+    if not os.path.exists(dev_path):
+        logger.warning(f"BIRD dev.json not found at {dev_path}")
+        return
+
+    with open(dev_path) as f:
+        raw = json.load(f)
+
+    _questions = []
+    for item in raw:
+        _questions.append({
+            "id": f"bird_dev_{item['question_id']}",
+            "question": item["question"],
+            "db_id": item["db_id"],
+            "gold_sql": item["SQL"],
+            "source": "bird_dev",
+            "evidence": item.get("evidence", ""),
+            "difficulty": item.get("difficulty", ""),
+        })
+
+    logger.info(f"Loaded {len(_questions)} BIRD dev questions")
+
+
 @router.get("/questions")
 def get_questions(
     limit: int = Query(default=0, ge=0),
