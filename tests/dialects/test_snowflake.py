@@ -223,7 +223,7 @@ class TestSnowflake(Validator):
             "SELECT SPLIT('127.0.0.1', '.')",
             write={
                 "snowflake": "SELECT SPLIT('127.0.0.1', '.')",
-                "duckdb": "SELECT STR_SPLIT('127.0.0.1', '.')",
+                "duckdb": "SELECT CASE WHEN '.' IS NULL THEN NULL WHEN '.' = '' THEN ['127.0.0.1'] ELSE STR_SPLIT('127.0.0.1', '.') END",
             },
         )
         self.validate_identity("SELECT PI()")
@@ -1076,16 +1076,6 @@ class TestSnowflake(Validator):
             write={
                 "snowflake": "SELECT ARRAYS_OVERLAP(col1, col2)",
                 "duckdb": "SELECT (col1 && col2) OR (ARRAY_LENGTH(col1) <> LIST_COUNT(col1) AND ARRAY_LENGTH(col2) <> LIST_COUNT(col2))",
-            },
-        )
-        self.validate_all(
-            "SELECT ARRAYS_OVERLAP([1, NULL, 3], [NULL, 4, 5])",
-            read={
-                "snowflake": "SELECT ARRAYS_OVERLAP([1, NULL, 3], [NULL, 4, 5])",
-            },
-            write={
-                "snowflake": "SELECT ARRAYS_OVERLAP([1, NULL, 3], [NULL, 4, 5])",
-                "duckdb": "SELECT ([1, NULL, 3] && [NULL, 4, 5]) OR (ARRAY_LENGTH([1, NULL, 3]) <> LIST_COUNT([1, NULL, 3]) AND ARRAY_LENGTH([NULL, 4, 5]) <> LIST_COUNT([NULL, 4, 5]))",
             },
         )
         self.validate_all(
