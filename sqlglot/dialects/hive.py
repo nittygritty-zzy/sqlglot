@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+import re
 import typing as t
 from copy import deepcopy
 from functools import partial
 from collections import defaultdict
 
-from sqlglot import exp, generator, tokens, transforms
+from sqlglot import exp, generator, jsonpath, tokens, transforms
 from sqlglot.dialects.dialect import (
     DATE_ADD_OR_SUB,
     Dialect,
@@ -41,7 +42,7 @@ from sqlglot.transforms import (
     preprocess,
     move_schema_columns_to_partitioned_by,
 )
-from sqlglot.parsers.hive import Parser as HiveParser
+from sqlglot.parsers.hive import HiveParser
 from sqlglot.tokens import TokenType
 from sqlglot.generator import unsupported_args
 from sqlglot.optimizer.annotate_types import TypeAnnotator
@@ -240,6 +241,12 @@ class Hive(Dialect):
     DATEINT_FORMAT = "'yyyyMMdd'"
     TIME_FORMAT = "'yyyy-MM-dd HH:mm:ss'"
 
+    class JSONPathTokenizer(jsonpath.JSONPathTokenizer):
+        VAR_TOKENS = {
+            *jsonpath.JSONPathTokenizer.VAR_TOKENS,
+            TokenType.DASH,
+        }
+
     class Tokenizer(tokens.Tokenizer):
         QUOTES = ["'", '"']
         IDENTIFIERS = ["`"]
@@ -288,6 +295,7 @@ class Hive(Dialect):
         NVL2_SUPPORTED = False
         LAST_DAY_SUPPORTS_DATE_PART = False
         JSON_PATH_SINGLE_QUOTE_ESCAPE = True
+        SAFE_JSON_PATH_KEY_RE = re.compile(r"^[_\-a-zA-Z][\-\w]*$")
         SUPPORTS_TO_NUMBER = False
         WITH_PROPERTIES_PREFIX = "TBLPROPERTIES"
         PARSE_JSON_NAME: t.Optional[str] = None
@@ -340,10 +348,12 @@ class Hive(Dialect):
             exp.DateDiff: _date_diff_sql,
             exp.DateStrToDate: datestrtodate_sql,
             exp.DateSub: _add_date_sql,
-            exp.DateToDi: lambda self,
-            e: f"CAST(DATE_FORMAT({self.sql(e, 'this')}, {Hive.DATEINT_FORMAT}) AS INT)",
-            exp.DiToDate: lambda self,
-            e: f"TO_DATE(CAST({self.sql(e, 'this')} AS STRING), {Hive.DATEINT_FORMAT})",
+            exp.DateToDi: lambda self, e: (
+                f"CAST(DATE_FORMAT({self.sql(e, 'this')}, {Hive.DATEINT_FORMAT}) AS INT)"
+            ),
+            exp.DiToDate: lambda self, e: (
+                f"TO_DATE(CAST({self.sql(e, 'this')} AS STRING), {Hive.DATEINT_FORMAT})"
+            ),
             exp.StorageHandlerProperty: lambda self, e: f"STORED BY {self.sql(e, 'this')}",
             exp.FromBase64: rename_func("UNBASE64"),
             exp.GenerateSeries: sequence_sql,
@@ -410,8 +420,9 @@ class Hive(Dialect):
             exp.TimestampTrunc: lambda self, e: self.func("TRUNC", e.this, unit_to_str(e)),
             exp.TimeToUnix: rename_func("UNIX_TIMESTAMP"),
             exp.ToBase64: rename_func("BASE64"),
-            exp.TsOrDiToDi: lambda self,
-            e: f"CAST(SUBSTR(REPLACE(CAST({self.sql(e, 'this')} AS STRING), '-', ''), 1, 8) AS INT)",
+            exp.TsOrDiToDi: lambda self, e: (
+                f"CAST(SUBSTR(REPLACE(CAST({self.sql(e, 'this')} AS STRING), '-', ''), 1, 8) AS INT)"
+            ),
             exp.TsOrDsAdd: _add_date_sql,
             exp.TsOrDsDiff: _date_diff_sql,
             exp.TsOrDsToDate: _to_date_sql,
@@ -427,10 +438,12 @@ class Hive(Dialect):
             exp.PartitionedByProperty: lambda self, e: f"PARTITIONED BY {self.sql(e, 'this')}",
             exp.NumberToStr: rename_func("FORMAT_NUMBER"),
             exp.National: lambda self, e: self.national_sql(e, prefix=""),
-            exp.ClusteredColumnConstraint: lambda self,
-            e: f"({self.expressions(e, 'this', indent=False)})",
-            exp.NonClusteredColumnConstraint: lambda self,
-            e: f"({self.expressions(e, 'this', indent=False)})",
+            exp.ClusteredColumnConstraint: lambda self, e: (
+                f"({self.expressions(e, 'this', indent=False)})"
+            ),
+            exp.NonClusteredColumnConstraint: lambda self, e: (
+                f"({self.expressions(e, 'this', indent=False)})"
+            ),
             exp.NotForReplicationColumnConstraint: lambda *_: "",
             exp.OnProperty: lambda *_: "",
             exp.PartitionedByBucket: lambda self, e: self.func("BUCKET", e.expression, e.this),
@@ -458,6 +471,15 @@ class Hive(Dialect):
             exp.Month,
             exp.Year,
         )
+
+        IGNORE_NULLS_FUNCS = (exp.First, exp.Last, exp.FirstValue, exp.LastValue)
+
+        def ignorenulls_sql(self, expression: exp.IgnoreNulls) -> str:
+            this = expression.this
+            if isinstance(this, self.IGNORE_NULLS_FUNCS):
+                return self.func(this.sql_name(), this.this, exp.true())
+
+            return super().ignorenulls_sql(expression)
 
         def unnest_sql(self, expression: exp.Unnest) -> str:
             return rename_func("EXPLODE")(self, expression)

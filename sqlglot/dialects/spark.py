@@ -11,7 +11,8 @@ from sqlglot.dialects.dialect import (
     date_delta_to_binary_interval_op,
     groupconcat_sql,
 )
-from sqlglot.parsers.spark import Parser as SparkParser
+from sqlglot.parsers.spark import SparkParser
+from sqlglot import generator
 from sqlglot.dialects.spark2 import Spark2, temporary_storage_provider
 from sqlglot.typing.spark import EXPRESSION_METADATA
 from sqlglot.helper import seq_get
@@ -138,8 +139,9 @@ class Spark(Spark2):
             exp.GroupConcat: _groupconcat_sql,
             exp.EndsWith: rename_func("ENDSWITH"),
             exp.JSONKeys: rename_func("JSON_OBJECT_KEYS"),
-            exp.PartitionedByProperty: lambda self,
-            e: f"PARTITIONED BY {self.wrap(self.expressions(sqls=[_normalize_partition(e) for e in e.this.expressions], skip_first=True))}",
+            exp.PartitionedByProperty: lambda self, e: (
+                f"PARTITIONED BY {self.wrap(self.expressions(sqls=[_normalize_partition(e) for e in e.this.expressions], skip_first=True))}"
+            ),
             exp.SafeAdd: rename_func("TRY_ADD"),
             exp.SafeMultiply: rename_func("TRY_MULTIPLY"),
             exp.SafeSubtract: rename_func("TRY_SUBTRACT"),
@@ -159,6 +161,9 @@ class Spark(Spark2):
         TRANSFORMS.pop(exp.AnyValue)
         TRANSFORMS.pop(exp.DateDiff)
         TRANSFORMS.pop(exp.With)
+
+        def ignorenulls_sql(self, expression: exp.IgnoreNulls) -> str:
+            return generator.Generator.ignorenulls_sql(self, expression)
 
         def bracket_sql(self, expression: exp.Bracket) -> str:
             if expression.args.get("safe"):

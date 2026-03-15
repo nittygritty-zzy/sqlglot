@@ -3,8 +3,8 @@ from __future__ import annotations
 import typing as t
 
 from sqlglot import exp
-from sqlglot.helper import mypyc_attr, seq_get
-from sqlglot.parsers.mysql import Parser as MySQLParser
+from sqlglot.helper import seq_get
+from sqlglot.parsers.mysql import MySQLParser
 from sqlglot.tokens import TokenType
 
 
@@ -24,8 +24,7 @@ def _build_date_trunc(args: t.List[exp.Expr]) -> exp.Expr:
     return exp.TimestampTrunc(this=this, unit=unit)
 
 
-@mypyc_attr(allow_interpreted_subclasses=True)
-class Parser(MySQLParser):
+class DorisParser(MySQLParser):
     FUNCTIONS = {
         **MySQLParser.FUNCTIONS,
         "COLLECT_SET": exp.ArrayUniqueAgg.from_arg_list,
@@ -75,9 +74,9 @@ class Parser(MySQLParser):
         self._match_r_paren()
 
         return self.expression(
-            exp.PartitionByRangeProperty,
-            partition_expressions=expr,
-            create_expressions=create_expressions,
+            exp.PartitionByRangeProperty(
+                partition_expressions=expr, create_expressions=create_expressions
+            )
         )
 
     def _parse_partitioning_granularity_dynamic(self) -> exp.PartitionByRangePropertyDynamic:
@@ -88,9 +87,9 @@ class Parser(MySQLParser):
         self._match_text_seq("INTERVAL")
         number = self._parse_number()
         unit = self._parse_var(any_token=True)
-        every = self.expression(exp.Interval, this=number, unit=unit)
+        every = self.expression(exp.Interval(this=number, unit=unit))
         return self.expression(
-            exp.PartitionByRangePropertyDynamic, start=start, end=end, every=every
+            exp.PartitionByRangePropertyDynamic(start=start, end=end, every=every)
         )
 
     def _parse_partition_range_value(self) -> t.Optional[exp.Expr]:
@@ -109,11 +108,11 @@ class Parser(MySQLParser):
         self._match(TokenType.R_BRACKET)
         self._match(TokenType.R_PAREN)
 
-        part_range = self.expression(exp.PartitionRange, this=name, expressions=values)
-        return self.expression(exp.Partition, expressions=[part_range])
+        part_range = self.expression(exp.PartitionRange(this=name, expressions=values))
+        return self.expression(exp.Partition(expressions=[part_range]))
 
     def _parse_build_property(self) -> exp.BuildProperty:
-        return self.expression(exp.BuildProperty, this=self._parse_var(upper=True))
+        return self.expression(exp.BuildProperty(this=self._parse_var(upper=True)))
 
     def _parse_refresh_property(self) -> exp.RefreshTriggerProperty:
         method = self._parse_var(upper=True)
@@ -126,10 +125,7 @@ class Parser(MySQLParser):
         starts = self._match_text_seq("STARTS") and self._parse_string()
 
         return self.expression(
-            exp.RefreshTriggerProperty,
-            method=method,
-            kind=kind,
-            every=every,
-            unit=unit,
-            starts=starts,
+            exp.RefreshTriggerProperty(
+                method=method, kind=kind, every=every, unit=unit, starts=starts
+            )
         )

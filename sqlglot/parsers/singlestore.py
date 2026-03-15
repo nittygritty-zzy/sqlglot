@@ -3,13 +3,14 @@ from __future__ import annotations
 import typing as t
 
 from sqlglot import exp
+from sqlglot.trie import new_trie
 from sqlglot.dialects.dialect import (
     build_formatted_time,
     build_json_extract_path,
 )
 from sqlglot.dialects.mysql import MySQL
-from sqlglot.helper import mypyc_attr, seq_get
-from sqlglot.parsers.mysql import Parser as MySQLParser, _show_parser
+from sqlglot.helper import seq_get
+from sqlglot.parsers.mysql import MySQLParser, _show_parser
 from sqlglot.tokens import TokenType
 
 
@@ -25,8 +26,7 @@ def cast_to_time6(
     )
 
 
-@mypyc_attr(allow_interpreted_subclasses=True)
-class Parser(MySQLParser):
+class SingleStoreParser(MySQLParser):
     FUNCTIONS = {
         **MySQLParser.FUNCTIONS,
         "TO_DATE": build_formatted_time(exp.TsOrDsToDate, "singlestore"),
@@ -168,16 +168,8 @@ class Parser(MySQLParser):
 
     COLUMN_OPERATORS = {
         **MySQLParser.COLUMN_OPERATORS,
-        TokenType.COLON_GT: lambda self, this, to: self.expression(
-            exp.Cast,
-            this=this,
-            to=to,
-        ),
-        TokenType.NCOLON_GT: lambda self, this, to: self.expression(
-            exp.TryCast,
-            this=this,
-            to=to,
-        ),
+        TokenType.COLON_GT: lambda self, this, to: self.expression(exp.Cast(this=this, to=to)),
+        TokenType.NCOLON_GT: lambda self, this, to: self.expression(exp.TryCast(this=this, to=to)),
         TokenType.DCOLON: lambda self, this, path: build_json_extract_path(exp.JSONExtract)(
             [this, exp.Literal.string(path.name)]
         ),
@@ -188,10 +180,7 @@ class Parser(MySQLParser):
             exp.JSONExtractScalar, json_type="DOUBLE"
         )([this, exp.Literal.string(path.name)]),
         TokenType.DCOLONQMARK: lambda self, this, path: self.expression(
-            exp.JSONExists,
-            this=this,
-            path=path.name,
-            from_dcolonqmark=True,
+            exp.JSONExists(this=this, path=path.name, from_dcolonqmark=True)
         ),
     }
     COLUMN_OPERATORS = {
@@ -248,10 +237,12 @@ class Parser(MySQLParser):
         "USERS FOR GROUP": _show_parser("USERS FOR GROUP", target=True),
     }
 
+    SHOW_TRIE = new_trie(key.split(" ") for key in SHOW_PARSERS)
+
     ALTER_PARSERS = {
         **MySQLParser.ALTER_PARSERS,
         "CHANGE": lambda self: self.expression(
-            exp.RenameColumn, this=self._parse_column(), to=self._parse_column()
+            exp.RenameColumn(this=self._parse_column(), to=self._parse_column())
         ),
     }
 

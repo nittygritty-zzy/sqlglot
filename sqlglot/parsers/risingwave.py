@@ -3,13 +3,11 @@ from __future__ import annotations
 import typing as t
 
 from sqlglot import exp
-from sqlglot.helper import mypyc_attr
-from sqlglot.parsers.postgres import Parser as PostgresParser
+from sqlglot.parsers.postgres import PostgresParser
 from sqlglot.tokens import TokenType
 
 
-@mypyc_attr(allow_interpreted_subclasses=True)
-class Parser(PostgresParser):
+class RisingWaveParser(PostgresParser):
     WRAPPED_TRANSFORM_COLUMN_CONSTRAINT = False
 
     PROPERTY_PARSERS = {
@@ -22,9 +20,10 @@ class Parser(PostgresParser):
     CONSTRAINT_PARSERS = {
         **PostgresParser.CONSTRAINT_PARSERS,
         "WATERMARK": lambda self: self.expression(
-            exp.WatermarkColumnConstraint,
-            this=self._match(TokenType.FOR) and self._parse_column(),
-            expression=self._match(TokenType.ALIAS) and self._parse_disjunction(),
+            exp.WatermarkColumnConstraint(
+                this=self._match(TokenType.FOR) and self._parse_column(),
+                expression=self._match(TokenType.ALIAS) and self._parse_disjunction(),
+            )
         ),
     }
 
@@ -47,12 +46,12 @@ class Parser(PostgresParser):
         if not self._match(TokenType.ALIAS):
             header = self._parse_field()
             if header:
-                coldef = self.expression(exp.ColumnDef, this=header, kind=self._parse_types())
+                coldef = self.expression(exp.ColumnDef(this=header, kind=self._parse_types()))
 
         self._match(TokenType.ALIAS)
         alias = self._parse_id_var(tokens=self.ALIAS_TOKENS)
 
-        return self.expression(exp.IncludeProperty, this=this, alias=alias, column_def=coldef)
+        return self.expression(exp.IncludeProperty(this=this, alias=alias, column_def=coldef))
 
     def _parse_encode_property(self, key: t.Optional[bool] = None) -> exp.EncodeProperty:
         self._match_text_seq("ENCODE")
@@ -60,9 +59,9 @@ class Parser(PostgresParser):
 
         if self._match(TokenType.L_PAREN, advance=False):
             properties = self.expression(
-                exp.Properties, expressions=self._parse_wrapped_properties()
+                exp.Properties(expressions=self._parse_wrapped_properties())
             )
         else:
             properties = None
 
-        return self.expression(exp.EncodeProperty, this=this, properties=properties, key=key)
+        return self.expression(exp.EncodeProperty(this=this, properties=properties, key=key))

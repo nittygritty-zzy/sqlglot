@@ -114,8 +114,9 @@ class Generator(metaclass=_Generator):
     TRANSFORMS: t.Dict[t.Type[exp.Expr], t.Callable[..., str]] = {
         **JSON_PATH_PART_TRANSFORMS,
         exp.Adjacent: lambda self, e: self.binary(e, "-|-"),
-        exp.AllowedValuesProperty: lambda self,
-        e: f"ALLOWED_VALUES {self.expressions(e, flat=True)}",
+        exp.AllowedValuesProperty: lambda self, e: (
+            f"ALLOWED_VALUES {self.expressions(e, flat=True)}"
+        ),
         exp.AnalyzeColumns: lambda self, e: self.sql(e, "this"),
         exp.AnalyzeWith: lambda self, e: self.expressions(e, prefix="WITH ", sep=" "),
         exp.ArrayContainsAll: lambda self, e: self.binary(e, "@>"),
@@ -123,14 +124,17 @@ class Generator(metaclass=_Generator):
         exp.AssumeColumnConstraint: lambda self, e: f"ASSUME ({self.sql(e, 'this')})",
         exp.AutoRefreshProperty: lambda self, e: f"AUTO REFRESH {self.sql(e, 'this')}",
         exp.BackupProperty: lambda self, e: f"BACKUP {self.sql(e, 'this')}",
-        exp.CaseSpecificColumnConstraint: lambda _,
-        e: f"{'NOT ' if e.args.get('not_') else ''}CASESPECIFIC",
+        exp.CaseSpecificColumnConstraint: lambda _, e: (
+            f"{'NOT ' if e.args.get('not_') else ''}CASESPECIFIC"
+        ),
         exp.Ceil: lambda self, e: self.ceil_floor(e),
         exp.CharacterSetColumnConstraint: lambda self, e: f"CHARACTER SET {self.sql(e, 'this')}",
-        exp.CharacterSetProperty: lambda self,
-        e: f"{'DEFAULT ' if e.args.get('default') else ''}CHARACTER SET={self.sql(e, 'this')}",
-        exp.ClusteredColumnConstraint: lambda self,
-        e: f"CLUSTERED ({self.expressions(e, 'this', indent=False)})",
+        exp.CharacterSetProperty: lambda self, e: (
+            f"{'DEFAULT ' if e.args.get('default') else ''}CHARACTER SET={self.sql(e, 'this')}"
+        ),
+        exp.ClusteredColumnConstraint: lambda self, e: (
+            f"CLUSTERED ({self.expressions(e, 'this', indent=False)})"
+        ),
         exp.CollateColumnConstraint: lambda self, e: f"COLLATE {self.sql(e, 'this')}",
         exp.CommentColumnConstraint: lambda self, e: f"COMMENT {self.sql(e, 'this')}",
         exp.ConnectByRoot: lambda self, e: f"CONNECT_BY_ROOT {self.sql(e, 'this')}",
@@ -138,12 +142,18 @@ class Generator(metaclass=_Generator):
             "CONVERT", e.this, e.args["dest"], e.args.get("source")
         ),
         exp.CopyGrantsProperty: lambda *_: "COPY GRANTS",
-        exp.CredentialsProperty: lambda self,
-        e: f"CREDENTIALS=({self.expressions(e, 'expressions', sep=' ')})",
+        exp.CredentialsProperty: lambda self, e: (
+            f"CREDENTIALS=({self.expressions(e, 'expressions', sep=' ')})"
+        ),
         exp.CurrentCatalog: lambda *_: "CURRENT_CATALOG",
         exp.SessionUser: lambda *_: "SESSION_USER",
         exp.DateFormatColumnConstraint: lambda self, e: f"FORMAT {self.sql(e, 'this')}",
         exp.DefaultColumnConstraint: lambda self, e: f"DEFAULT {self.sql(e, 'this')}",
+        exp.ApiProperty: lambda *_: "API",
+        exp.ApplicationProperty: lambda *_: "APPLICATION",
+        exp.CatalogProperty: lambda *_: "CATALOG",
+        exp.ComputeProperty: lambda *_: "COMPUTE",
+        exp.DatabaseProperty: lambda *_: "DATABASE",
         exp.DynamicProperty: lambda *_: "DYNAMIC",
         exp.EmptyProperty: lambda *_: "EMPTY",
         exp.EncodeColumnConstraint: lambda self, e: f"ENCODE {self.sql(e, 'this')}",
@@ -151,8 +161,9 @@ class Generator(metaclass=_Generator):
         exp.EnviromentProperty: lambda self, e: f"ENVIRONMENT ({self.expressions(e, flat=True)})",
         exp.HandlerProperty: lambda self, e: f"HANDLER {self.sql(e, 'this')}",
         exp.ParameterStyleProperty: lambda self, e: f"PARAMETER STYLE {self.sql(e, 'this')}",
-        exp.EphemeralColumnConstraint: lambda self,
-        e: f"EPHEMERAL{(' ' + self.sql(e, 'this')) if e.this else ''}",
+        exp.EphemeralColumnConstraint: lambda self, e: (
+            f"EPHEMERAL{(' ' + self.sql(e, 'this')) if e.this else ''}"
+        ),
         exp.ExcludeColumnConstraint: lambda self, e: f"EXCLUDE {self.sql(e, 'this').lstrip()}",
         exp.ExecuteAsProperty: lambda self, e: self.naked_property(e),
         exp.Except: lambda self, e: self.set_operations(e),
@@ -161,6 +172,7 @@ class Generator(metaclass=_Generator):
         exp.Get: lambda self, e: self.get_put_sql(e),
         exp.GlobalProperty: lambda *_: "GLOBAL",
         exp.HeapProperty: lambda *_: "HEAP",
+        exp.HybridProperty: lambda *_: "HYBRID",
         exp.IcebergProperty: lambda *_: "ICEBERG",
         exp.InheritsProperty: lambda self, e: f"INHERITS ({self.expressions(e, flat=True)})",
         exp.InlineLengthColumnConstraint: lambda self, e: f"INLINE LENGTH {self.sql(e, 'this')}",
@@ -176,14 +188,18 @@ class Generator(metaclass=_Generator):
         exp.LanguageProperty: lambda self, e: self.naked_property(e),
         exp.LocationProperty: lambda self, e: self.naked_property(e),
         exp.LogProperty: lambda _, e: f"{'NO ' if e.args.get('no') else ''}LOG",
+        exp.MaskingProperty: lambda *_: "MASKING",
         exp.MaterializedProperty: lambda *_: "MATERIALIZED",
         exp.NetFunc: lambda self, e: f"NET.{self.sql(e, 'this')}",
-        exp.NonClusteredColumnConstraint: lambda self,
-        e: f"NONCLUSTERED ({self.expressions(e, 'this', indent=False)})",
+        exp.NetworkProperty: lambda *_: "NETWORK",
+        exp.NonClusteredColumnConstraint: lambda self, e: (
+            f"NONCLUSTERED ({self.expressions(e, 'this', indent=False)})"
+        ),
         exp.NoPrimaryIndexProperty: lambda *_: "NO PRIMARY INDEX",
         exp.NotForReplicationColumnConstraint: lambda *_: "NOT FOR REPLICATION",
-        exp.OnCommitProperty: lambda _,
-        e: f"ON COMMIT {'DELETE' if e.args.get('delete') else 'PRESERVE'} ROWS",
+        exp.OnCommitProperty: lambda _, e: (
+            f"ON COMMIT {'DELETE' if e.args.get('delete') else 'PRESERVE'} ROWS"
+        ),
         exp.OnProperty: lambda self, e: f"ON {self.sql(e, 'this')}",
         exp.OnUpdateColumnConstraint: lambda self, e: f"ON UPDATE {self.sql(e, 'this')}",
         exp.Operator: lambda self, e: self.binary(e, ""),  # The operator is produced in `binary`
@@ -195,18 +211,22 @@ class Generator(metaclass=_Generator):
         exp.PartitionByTruncate: lambda self, e: self.func("TRUNCATE", e.this, e.expression),
         exp.PivotAny: lambda self, e: f"ANY{self.sql(e, 'this')}",
         exp.PositionalColumn: lambda self, e: f"#{self.sql(e, 'this')}",
-        exp.ProjectionPolicyColumnConstraint: lambda self,
-        e: f"PROJECTION POLICY {self.sql(e, 'this')}",
+        exp.ProjectionPolicyColumnConstraint: lambda self, e: (
+            f"PROJECTION POLICY {self.sql(e, 'this')}"
+        ),
         exp.ZeroFillColumnConstraint: lambda self, e: "ZEROFILL",
         exp.Put: lambda self, e: self.get_put_sql(e),
-        exp.RemoteWithConnectionModelProperty: lambda self,
-        e: f"REMOTE WITH CONNECTION {self.sql(e, 'this')}",
+        exp.RemoteWithConnectionModelProperty: lambda self, e: (
+            f"REMOTE WITH CONNECTION {self.sql(e, 'this')}"
+        ),
         exp.ReturnsProperty: lambda self, e: (
             "RETURNS NULL ON NULL INPUT" if e.args.get("null") else self.naked_property(e)
         ),
+        exp.RowAccessProperty: lambda *_: "ROW ACCESS",
         exp.SafeFunc: lambda self, e: f"SAFE.{self.sql(e, 'this')}",
         exp.SampleProperty: lambda self, e: f"SAMPLE BY {self.sql(e, 'this')}",
         exp.SecureProperty: lambda *_: "SECURE",
+        exp.SecurityIntegrationProperty: lambda *_: "SECURITY",
         exp.SetConfigProperty: lambda self, e: self.sql(e, "this"),
         exp.SetProperty: lambda _, e: f"{'MULTI' if e.args.get('multi') else ''}SET",
         exp.SettingsProperty: lambda self, e: f"SETTINGS{self.seg('')}{(self.expressions(e))}",
@@ -252,6 +272,9 @@ class Generator(metaclass=_Generator):
     # True: Full Support, None: No support, False: No support for certain cases
     # such as window specifications, aggregate functions etc
     NULL_ORDERING_SUPPORTED: t.Optional[bool] = True
+
+    # Window functions that support NULLS FIRST/LAST
+    WINDOW_FUNCS_WITH_NULL_ORDERING: t.ClassVar[t.Tuple[t.Type[exp.Expression], ...]] = ()
 
     # Whether ignore nulls is inside the agg or outside.
     # FIRST(x IGNORE NULLS) OVER vs FIRST (x) IGNORE NULLS OVER
@@ -600,19 +623,24 @@ class Generator(metaclass=_Generator):
     PROPERTIES_LOCATION = {
         exp.AllowedValuesProperty: exp.Properties.Location.POST_SCHEMA,
         exp.AlgorithmProperty: exp.Properties.Location.POST_CREATE,
+        exp.ApiProperty: exp.Properties.Location.POST_CREATE,
+        exp.ApplicationProperty: exp.Properties.Location.POST_CREATE,
         exp.AutoIncrementProperty: exp.Properties.Location.POST_SCHEMA,
         exp.AutoRefreshProperty: exp.Properties.Location.POST_SCHEMA,
         exp.BackupProperty: exp.Properties.Location.POST_SCHEMA,
         exp.BlockCompressionProperty: exp.Properties.Location.POST_NAME,
+        exp.CatalogProperty: exp.Properties.Location.POST_CREATE,
         exp.CharacterSetProperty: exp.Properties.Location.POST_SCHEMA,
         exp.ChecksumProperty: exp.Properties.Location.POST_NAME,
         exp.CollateProperty: exp.Properties.Location.POST_SCHEMA,
+        exp.ComputeProperty: exp.Properties.Location.POST_CREATE,
         exp.CopyGrantsProperty: exp.Properties.Location.POST_SCHEMA,
         exp.Cluster: exp.Properties.Location.POST_SCHEMA,
         exp.ClusteredByProperty: exp.Properties.Location.POST_SCHEMA,
         exp.DistributedByProperty: exp.Properties.Location.POST_SCHEMA,
         exp.DuplicateKeyProperty: exp.Properties.Location.POST_SCHEMA,
         exp.DataBlocksizeProperty: exp.Properties.Location.POST_NAME,
+        exp.DatabaseProperty: exp.Properties.Location.POST_CREATE,
         exp.DataDeletionProperty: exp.Properties.Location.POST_SCHEMA,
         exp.DefinerProperty: exp.Properties.Location.POST_CREATE,
         exp.DictRange: exp.Properties.Location.POST_SCHEMA,
@@ -633,6 +661,7 @@ class Generator(metaclass=_Generator):
         exp.FreespaceProperty: exp.Properties.Location.POST_NAME,
         exp.GlobalProperty: exp.Properties.Location.POST_CREATE,
         exp.HeapProperty: exp.Properties.Location.POST_WITH,
+        exp.HybridProperty: exp.Properties.Location.POST_CREATE,
         exp.InheritsProperty: exp.Properties.Location.POST_SCHEMA,
         exp.IcebergProperty: exp.Properties.Location.POST_CREATE,
         exp.IncludeProperty: exp.Properties.Location.POST_SCHEMA,
@@ -645,8 +674,10 @@ class Generator(metaclass=_Generator):
         exp.LockProperty: exp.Properties.Location.POST_SCHEMA,
         exp.LockingProperty: exp.Properties.Location.POST_ALIAS,
         exp.LogProperty: exp.Properties.Location.POST_NAME,
+        exp.MaskingProperty: exp.Properties.Location.POST_CREATE,
         exp.MaterializedProperty: exp.Properties.Location.POST_CREATE,
         exp.MergeBlockRatioProperty: exp.Properties.Location.POST_NAME,
+        exp.NetworkProperty: exp.Properties.Location.POST_CREATE,
         exp.NoPrimaryIndexProperty: exp.Properties.Location.POST_EXPRESSION,
         exp.OnProperty: exp.Properties.Location.POST_SCHEMA,
         exp.OnCommitProperty: exp.Properties.Location.POST_EXPRESSION,
@@ -660,12 +691,14 @@ class Generator(metaclass=_Generator):
         exp.RemoteWithConnectionModelProperty: exp.Properties.Location.POST_SCHEMA,
         exp.ReturnsProperty: exp.Properties.Location.POST_SCHEMA,
         exp.RollupProperty: exp.Properties.Location.UNSUPPORTED,
+        exp.RowAccessProperty: exp.Properties.Location.POST_CREATE,
         exp.RowFormatProperty: exp.Properties.Location.POST_SCHEMA,
         exp.RowFormatDelimitedProperty: exp.Properties.Location.POST_SCHEMA,
         exp.RowFormatSerdeProperty: exp.Properties.Location.POST_SCHEMA,
         exp.SampleProperty: exp.Properties.Location.POST_SCHEMA,
         exp.SchemaCommentProperty: exp.Properties.Location.POST_SCHEMA,
         exp.SecureProperty: exp.Properties.Location.POST_CREATE,
+        exp.SecurityIntegrationProperty: exp.Properties.Location.POST_CREATE,
         exp.SerdeProperties: exp.Properties.Location.POST_SCHEMA,
         exp.Set: exp.Properties.Location.POST_SCHEMA,
         exp.SettingsProperty: exp.Properties.Location.POST_SCHEMA,
@@ -2820,35 +2853,51 @@ class Generator(metaclass=_Generator):
         # If the NULLS FIRST/LAST clause is unsupported, we add another sort key to simulate it
         if nulls_sort_change and not self.NULL_ORDERING_SUPPORTED:
             window = expression.find_ancestor(exp.Window, exp.Select)
-            if isinstance(window, exp.Window) and window.args.get("spec"):
-                self.unsupported(
-                    f"'{nulls_sort_change.strip()}' translation not supported in window functions"
-                )
-                nulls_sort_change = ""
-            elif self.NULL_ORDERING_SUPPORTED is False and (
-                (asc and nulls_sort_change == " NULLS LAST")
-                or (desc and nulls_sort_change == " NULLS FIRST")
-            ):
-                # BigQuery does not allow these ordering/nulls combinations when used under
-                # an aggregation func or under a window containing one
-                ancestor = expression.find_ancestor(exp.AggFunc, exp.Window, exp.Select)
 
-                if isinstance(ancestor, exp.Window):
-                    ancestor = ancestor.this
-                if isinstance(ancestor, exp.AggFunc):
+            if isinstance(window, exp.Window):
+                window_this = window.this
+                spec = window.args.get("spec")
+            else:
+                window_this = None
+                spec = None
+
+            # Some window functions (e.g. LAST_VALUE, RANK) support NULLS FIRST/LAST
+            # without a spec or with a ROWS spec, but not with RANGE
+            if not (
+                isinstance(window_this, self.WINDOW_FUNCS_WITH_NULL_ORDERING)
+                and (not spec or spec.text("kind").upper() == "ROWS")
+            ):
+                if window_this and spec:
                     self.unsupported(
-                        f"'{nulls_sort_change.strip()}' translation not supported for aggregate functions with {sort_order} sort order"
+                        f"'{nulls_sort_change.strip()}' translation not supported in window function {window_this.sql_name()}"
                     )
                     nulls_sort_change = ""
-            elif self.NULL_ORDERING_SUPPORTED is None:
-                if expression.this.is_int:
-                    self.unsupported(
-                        f"'{nulls_sort_change.strip()}' translation not supported with positional ordering"
-                    )
-                elif not isinstance(expression.this, exp.Rand):
-                    null_sort_order = " DESC" if nulls_sort_change == " NULLS FIRST" else ""
-                    this = f"CASE WHEN {this} IS NULL THEN 1 ELSE 0 END{null_sort_order}, {this}"
-                nulls_sort_change = ""
+                elif self.NULL_ORDERING_SUPPORTED is False and (
+                    (asc and nulls_sort_change == " NULLS LAST")
+                    or (desc and nulls_sort_change == " NULLS FIRST")
+                ):
+                    # BigQuery does not allow these ordering/nulls combinations when used under
+                    # an aggregation func or under a window containing one
+                    ancestor = expression.find_ancestor(exp.AggFunc, exp.Window, exp.Select)
+
+                    if isinstance(ancestor, exp.Window):
+                        ancestor = ancestor.this
+                    if isinstance(ancestor, exp.AggFunc):
+                        self.unsupported(
+                            f"'{nulls_sort_change.strip()}' translation not supported for aggregate function {ancestor.sql_name()} with {sort_order} sort order"
+                        )
+                        nulls_sort_change = ""
+                elif self.NULL_ORDERING_SUPPORTED is None:
+                    if expression.this.is_int:
+                        self.unsupported(
+                            f"'{nulls_sort_change.strip()}' translation not supported with positional ordering"
+                        )
+                    elif not isinstance(expression.this, exp.Rand):
+                        null_sort_order = " DESC" if nulls_sort_change == " NULLS FIRST" else ""
+                        this = (
+                            f"CASE WHEN {this} IS NULL THEN 1 ELSE 0 END{null_sort_order}, {this}"
+                        )
+                    nulls_sort_change = ""
 
         with_fill = self.sql(expression, "with_fill")
         with_fill = f" {with_fill}" if with_fill else ""
@@ -4818,9 +4867,11 @@ class Generator(metaclass=_Generator):
                 # The first modifier here will be the one closest to the AggFunc's arg
                 mods = sorted(
                     expression.find_all(exp.HavingMax, exp.Order, exp.Limit),
-                    key=lambda x: 0
-                    if isinstance(x, exp.HavingMax)
-                    else (1 if isinstance(x, exp.Order) else 2),
+                    key=lambda x: (
+                        0
+                        if isinstance(x, exp.HavingMax)
+                        else (1 if isinstance(x, exp.Order) else 2)
+                    ),
                 )
 
                 if mods:

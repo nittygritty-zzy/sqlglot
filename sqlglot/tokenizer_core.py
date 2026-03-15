@@ -316,6 +316,7 @@ class TokenType(IntEnum):
     INNER = auto()
     INSERT = auto()
     INSTALL = auto()
+    INTEGRATION = auto()
     INTERSECT = auto()
     INTERVAL = auto()
     INTO = auto()
@@ -364,11 +365,14 @@ class TokenType(IntEnum):
     OVER = auto()
     OVERLAPS = auto()
     OVERWRITE = auto()
+    PACKAGE = auto()
     PARTITION = auto()
     PARTITION_BY = auto()
     PERCENT = auto()
     PIVOT = auto()
     PLACEHOLDER = auto()
+    POLICY = auto()
+    POOL = auto()
     POSITIONAL = auto()
     PRAGMA = auto()
     PREWHERE = auto()
@@ -390,10 +394,12 @@ class TokenType(IntEnum):
     REFERENCES = auto()
     RIGHT = auto()
     RLIKE = auto()
+    ROLE = auto()
     ROLLBACK = auto()
     ROLLUP = auto()
     ROW = auto()
     ROWS = auto()
+    RULE = auto()
     SELECT = auto()
     SEMI = auto()
     SEPARATOR = auto()
@@ -432,6 +438,7 @@ class TokenType(IntEnum):
     VIEW = auto()
     SEMANTIC_VIEW = auto()
     VOLATILE = auto()
+    VOLUME = auto()
     WHEN = auto()
     WHERE = auto()
     WINDOW = auto()
@@ -449,8 +456,9 @@ class TokenType(IntEnum):
     NAMESPACE = auto()
     EXPORT = auto()
 
-    # sentinel
+    # sentinels
     HIVE_TOKEN_STREAM = auto()
+    SENTINEL = auto()
 
     def __str__(self) -> str:
         return f"TokenType.{self.name}"
@@ -506,6 +514,9 @@ class Token:
         self.start = start
         self.end = end
         self.comments = [] if comments is None else comments
+
+    def __bool__(self) -> bool:
+        return self.token_type != TokenType.SENTINEL
 
     def __repr__(self) -> str:
         attributes = ", ".join(
@@ -910,7 +921,13 @@ class TokenizerCore:
 
         while True:
             if self._peek in _DIGIT_CHARS:
-                self._advance()
+                # Batch consecutive digits: scan ahead to find how many
+                sql = self.sql
+                end = self._current + 1
+                size = self.size
+                while end < size and sql[end] in _DIGIT_CHARS:
+                    end += 1
+                self._advance(end - self._current)
             elif self._peek == "." and not decimal:
                 if self.tokens and self.tokens[-1].token_type == TokenType.PARAMETER:
                     break
@@ -1095,6 +1112,33 @@ class TokenizerCore:
         escape_follow_chars = self.escape_follow_chars
         string_escapes_allowed_in_raw_strings = self.string_escapes_allowed_in_raw_strings
         quotes = self.quotes
+        sql = self.sql
+
+        # use str.find() when the string is simple... no \ or other escapes
+        if delim_size == 1:
+            pos = self._current - 1
+            end = sql.find(delimiter, pos)
+
+            if (
+                # the closing delimiter was found
+                end != -1
+                # there's no doubled delimiter (e.g. '' escape), or the delimiter isn't an escape char
+                and (end + 1 >= self.size or sql[end + 1] != delimiter or delimiter not in escapes)
+                # no backslash in the string that would need escape processing
+                and (not (unescaped_sequences or "\\" in escapes) or sql.find("\\", pos, end) == -1)
+            ):
+                newlines = sql.count("\n", pos, end)
+                if newlines:
+                    self._line += newlines
+                    self._col = end - sql.rfind("\n", pos, end)
+                else:
+                    self._col += end - pos
+
+                self._current = end + 1
+                self._end = self._current >= self.size
+                self._char = sql[end]
+                self._peek = "" if self._end else sql[self._current]
+                return sql[pos:end]
 
         while True:
             if not raw_string and unescaped_sequences and self._peek and self._char in escapes:
@@ -1139,6 +1183,6 @@ class TokenizerCore:
 
                 current = self._current - 1
                 self._advance(alnum=True)
-                text += self.sql[current : self._current - 1]
+                text += sql[current : self._current - 1]
 
         return text

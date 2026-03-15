@@ -9,7 +9,7 @@ from sqlglot.optimizer.annotate_types import TypeAnnotator
 
 from sqlglot import exp, generator, jsonpath, tokens, transforms
 from sqlglot._typing import E
-from sqlglot.parsers.bigquery import Parser as BigQueryParser
+from sqlglot.parsers.bigquery import BigQueryParser
 from sqlglot.dialects.dialect import (
     Dialect,
     NormalizationStrategy,
@@ -236,7 +236,6 @@ class BigQuery(Dialect):
     WEEK_OFFSET = -1
     UNNEST_COLUMN_ONLY = True
     SUPPORTS_USER_DEFINED_TYPES = False
-    SUPPORTS_SEMI_ANTI_JOIN = False
     LOG_BASE_FIRST = False
     HEX_LOWERCASE = True
     FORCE_EARLY_ALIAS_REF_EXPANSION = True
@@ -362,8 +361,8 @@ class BigQuery(Dialect):
 
     class JSONPathTokenizer(jsonpath.JSONPathTokenizer):
         VAR_TOKENS = {
+            *jsonpath.JSONPathTokenizer.VAR_TOKENS,
             TokenType.DASH,
-            TokenType.VAR,
         }
 
     class Tokenizer(tokens.Tokenizer):
@@ -441,6 +440,20 @@ class BigQuery(Dialect):
         DECLARE_DEFAULT_ASSIGNMENT = "DEFAULT"
 
         SAFE_JSON_PATH_KEY_RE = re.compile(r"^[_\-a-zA-Z][\-\w]*$")
+
+        WINDOW_FUNCS_WITH_NULL_ORDERING = (
+            exp.CumeDist,
+            exp.DenseRank,
+            exp.FirstValue,
+            exp.Lag,
+            exp.LastValue,
+            exp.Lead,
+            exp.NthValue,
+            exp.Ntile,
+            exp.PercentRank,
+            exp.Rank,
+            exp.RowNumber,
+        )
 
         TS_OR_DS_TYPES = (
             exp.TsOrDsToDatetime,
@@ -554,10 +567,8 @@ class BigQuery(Dialect):
                 "DETERMINISTIC" if e.name == "IMMUTABLE" else "NOT DETERMINISTIC"
             ),
             exp.String: rename_func("STRING"),
-            exp.StrPosition: lambda self, e: (
-                strposition_sql(
-                    self, e, func_name="INSTR", supports_position=True, supports_occurrence=True
-                )
+            exp.StrPosition: lambda self, e: strposition_sql(
+                self, e, func_name="INSTR", supports_position=True, supports_occurrence=True
             ),
             exp.StrToDate: _str_to_datetime_sql,
             exp.StrToTime: _str_to_datetime_sql,

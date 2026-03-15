@@ -3,6 +3,7 @@ from __future__ import annotations
 import typing as t
 
 from sqlglot import exp, parser
+from sqlglot.trie import new_trie
 from sqlglot.dialects.dialect import (
     Dialect,
     build_date_delta,
@@ -10,7 +11,7 @@ from sqlglot.dialects.dialect import (
     build_formatted_time,
     isnull_to_is_null,
 )
-from sqlglot.helper import mypyc_attr, seq_get
+from sqlglot.helper import seq_get
 from sqlglot.tokens import TokenType
 
 
@@ -43,15 +44,22 @@ def _str_to_date(args: t.List) -> exp.StrToDate | exp.StrToTime:
     return exp.StrToDate(this=this, format=date_format)
 
 
-def _show_parser(*args: t.Any, **kwargs: t.Any) -> t.Callable[[Parser], exp.Show]:
-    def _parse(self: Parser) -> exp.Show:
+def _show_parser(*args: t.Any, **kwargs: t.Any) -> t.Callable[[MySQLParser], exp.Show]:
+    def _parse(self: MySQLParser) -> exp.Show:
         return self._parse_show_mysql(*args, **kwargs)
 
     return _parse
 
 
-@mypyc_attr(allow_interpreted_subclasses=True)
-class Parser(parser.Parser):
+class MySQLParser(parser.Parser):
+    NO_PAREN_FUNCTIONS = {
+        **parser.Parser.NO_PAREN_FUNCTIONS,
+        TokenType.LOCALTIME: exp.Localtime,
+        TokenType.LOCALTIMESTAMP: exp.Localtimestamp,
+    }
+
+    ID_VAR_TOKENS = parser.Parser.ID_VAR_TOKENS - {TokenType.STRAIGHT_JOIN}
+
     FUNC_TOKENS = {
         *parser.Parser.FUNC_TOKENS,
         TokenType.DATABASE,
@@ -72,19 +80,22 @@ class Parser(parser.Parser):
         TokenType.DPIPE: exp.Or,
     }
 
-    TABLE_ALIAS_TOKENS = parser.Parser.TABLE_ALIAS_TOKENS - parser.Parser.TABLE_INDEX_HINT_TOKENS
+    TABLE_ALIAS_TOKENS = (
+        (parser.Parser.TABLE_ALIAS_TOKENS | {TokenType.ANTI, TokenType.SEMI})
+        - parser.Parser.TABLE_INDEX_HINT_TOKENS
+        - {TokenType.STRAIGHT_JOIN}
+    )
 
     RANGE_PARSERS = {
         **parser.Parser.RANGE_PARSERS,
         TokenType.SOUNDS_LIKE: lambda self, this: self.expression(
-            exp.EQ,
-            this=self.expression(exp.Soundex, this=this),
-            expression=self.expression(exp.Soundex, this=self._parse_term()),
+            exp.EQ(
+                this=self.expression(exp.Soundex(this=this)),
+                expression=self.expression(exp.Soundex(this=self._parse_term())),
+            )
         ),
         TokenType.MEMBER_OF: lambda self, this: self.expression(
-            exp.JSONArrayContains,
-            this=this,
-            expression=self._parse_wrapped(self._parse_expression),
+            exp.JSONArrayContains(this=this, expression=self._parse_wrapped(self._parse_expression))
         ),
     }
 
@@ -145,7 +156,7 @@ class Parser(parser.Parser):
         "GROUP_CONCAT": lambda self: self._parse_group_concat(),
         # https://dev.mysql.com/doc/refman/5.7/en/miscellaneous-functions.html#function_values
         "VALUES": lambda self: self.expression(
-            exp.Anonymous, this="VALUES", expressions=[self._parse_id_var()]
+            exp.Anonymous(this="VALUES", expressions=[self._parse_id_var()])
         ),
         "JSON_VALUE": lambda self: self._parse_json_value(),
         "SUBSTR": lambda self: self._parse_substring(),
@@ -226,13 +237,16 @@ class Parser(parser.Parser):
         "NAMES": lambda self: self._parse_set_item_names(),
     }
 
+    SHOW_TRIE = new_trie(key.split(" ") for key in SHOW_PARSERS)
+    SET_TRIE = new_trie(key.split(" ") for key in SET_PARSERS)
+
     CONSTRAINT_PARSERS = {
         **parser.Parser.CONSTRAINT_PARSERS,
         "FULLTEXT": lambda self: self._parse_index_constraint(kind="FULLTEXT"),
         "INDEX": lambda self: self._parse_index_constraint(),
         "KEY": lambda self: self._parse_index_constraint(),
         "SPATIAL": lambda self: self._parse_index_constraint(kind="SPATIAL"),
-        "ZEROFILL": lambda self: self.expression(exp.ZeroFillColumnConstraint),
+        "ZEROFILL": lambda self: self.expression(exp.ZeroFillColumnConstraint()),
     }
 
     ALTER_PARSERS = {
@@ -302,7 +316,7 @@ class Parser(parser.Parser):
                 this.set("persisted", persisted)
             elif isinstance(this, exp.GeneratedAsIdentityColumnConstraint):
                 this = self.expression(
-                    exp.ComputedColumnConstraint, this=this.expression, persisted=persisted
+                    exp.ComputedColumnConstraint(this=this.expression, persisted=persisted)
                 )
 
         return this
@@ -314,7 +328,7 @@ class Parser(parser.Parser):
 
         expression = self._parse_number()
         self._match_r_paren()
-        return self.expression(exp.ColumnPrefix, this=this, expression=expression)
+        return self.expression(exp.ColumnPrefix(this=this, expression=expression))
 
     def _parse_index_constraint(self, kind: t.Optional[str] = None) -> exp.IndexColumnConstraint:
         if kind:
@@ -354,12 +368,13 @@ class Parser(parser.Parser):
             options.append(opt)
 
         return self.expression(
-            exp.IndexColumnConstraint,
-            this=this,
-            expressions=expressions,
-            kind=kind,
-            index_type=index_type,
-            options=options,
+            exp.IndexColumnConstraint(
+                this=this,
+                expressions=expressions,
+                kind=kind,
+                index_type=index_type,
+                options=options,
+            )
         )
 
     def _parse_show_mysql(
@@ -417,28 +432,29 @@ class Parser(parser.Parser):
         into_outfile = self._parse_string() if self._match_text_seq("INTO", "OUTFILE") else None
 
         return self.expression(
-            exp.Show,
-            this=this,
-            target=target_id,
-            full=full,
-            log=log,
-            position=position,
-            db=db,
-            channel=channel,
-            like=like,
-            where=where,
-            types=types,
-            query=query,
-            offset=offset,
-            limit=limit,
-            mutex=mutex,
-            for_table=for_table,
-            for_group=for_group,
-            for_user=for_user,
-            for_role=for_role,
-            into_outfile=into_outfile,
-            json=json,
-            global_=global_,
+            exp.Show(
+                this=this,
+                target=target_id,
+                full=full,
+                log=log,
+                position=position,
+                db=db,
+                channel=channel,
+                like=like,
+                where=where,
+                types=types,
+                query=query,
+                offset=offset,
+                limit=limit,
+                mutex=mutex,
+                for_table=for_table,
+                for_group=for_group,
+                for_user=for_user,
+                for_role=for_role,
+                into_outfile=into_outfile,
+                json=json,
+                global_=global_,
+            )
         )
 
     def _parse_oldstyle_limit(
@@ -458,7 +474,7 @@ class Parser(parser.Parser):
 
     def _parse_set_item_charset(self, kind: str) -> exp.Expr:
         this = self._parse_string() or self._parse_unquoted_field()
-        return self.expression(exp.SetItem, this=this, kind=kind)
+        return self.expression(exp.SetItem(this=this, kind=kind))
 
     def _parse_set_item_names(self) -> exp.Expr:
         charset = self._parse_string() or self._parse_unquoted_field()
@@ -467,7 +483,7 @@ class Parser(parser.Parser):
         else:
             collate = None
 
-        return self.expression(exp.SetItem, this=charset, collate=collate, kind="NAMES")
+        return self.expression(exp.SetItem(this=charset, collate=collate, kind="NAMES"))
 
     def _parse_type(
         self, parse_interval: bool = True, fallback_to_identifier: bool = False
@@ -478,7 +494,7 @@ class Parser(parser.Parser):
             data_type = self._parse_types(check_func=True, allow_identifiers=False)
 
             if isinstance(data_type, exp.DataType):
-                return self.expression(exp.Cast, this=self._parse_column(), to=data_type)
+                return self.expression(exp.Cast(this=self._parse_column(), to=data_type))
 
         return super()._parse_type(
             parse_interval=parse_interval, fallback_to_identifier=fallback_to_identifier
@@ -494,7 +510,7 @@ class Parser(parser.Parser):
         else:
             visible = None
 
-        return self.expression(exp.AlterIndex, this=index, visible=visible)
+        return self.expression(exp.AlterIndex(this=index, visible=visible))
 
     def _parse_partition_property(
         self,
@@ -521,9 +537,9 @@ class Parser(parser.Parser):
         create_expressions = self._parse_wrapped_csv(value_parser)
 
         return self.expression(
-            partition_cls,
-            partition_expressions=partition_expressions,
-            create_expressions=create_expressions,
+            partition_cls(
+                partition_expressions=partition_expressions, create_expressions=create_expressions
+            )
         )
 
     def _parse_partition_range_value(self) -> t.Optional[exp.Expr]:
@@ -542,16 +558,16 @@ class Parser(parser.Parser):
         ):
             values = [exp.var("MAXVALUE")]
 
-        part_range = self.expression(exp.PartitionRange, this=name, expressions=values)
-        return self.expression(exp.Partition, expressions=[part_range])
+        part_range = self.expression(exp.PartitionRange(this=name, expressions=values))
+        return self.expression(exp.Partition(expressions=[part_range]))
 
     def _parse_partition_list_value(self) -> exp.Partition:
         self._match_text_seq("PARTITION")
         name = self._parse_id_var()
         self._match_text_seq("VALUES", "IN")
         values = self._parse_wrapped_csv(self._parse_expression)
-        part_list = self.expression(exp.PartitionList, this=name, expressions=values)
-        return self.expression(exp.Partition, expressions=[part_list])
+        part_list = self.expression(exp.PartitionList(this=name, expressions=values))
+        return self.expression(exp.Partition(expressions=[part_list]))
 
     def _parse_primary_key(
         self,

@@ -26,11 +26,11 @@ from sqlglot.dialects.dialect import (
 )
 from sqlglot.generator import Generator, unsupported_args
 from sqlglot.helper import is_int
-from sqlglot.parsers.clickhouse import Parser as ClickHouseParser
+from sqlglot.parsers.clickhouse import ClickHouseParser
 from sqlglot.tokens import TokenType
 from sqlglot.typing.clickhouse import EXPRESSION_METADATA
 
-DATEΤΙΜΕ_DELTA = t.Union[exp.DateAdd, exp.DateDiff, exp.DateSub, exp.TimestampSub, exp.TimestampAdd]
+DATETIME_DELTA = t.Union[exp.DateAdd, exp.DateDiff, exp.DateSub, exp.TimestampSub, exp.TimestampAdd]
 
 
 def _unix_to_time_sql(self: ClickHouse.Generator, expression: exp.UnixToTime) -> str:
@@ -69,8 +69,8 @@ def _quantile_sql(self: ClickHouse.Generator, expression: exp.Quantile) -> str:
     return func + args
 
 
-def _datetime_delta_sql(name: str) -> t.Callable[[Generator, DATEΤΙΜΕ_DELTA], str]:
-    def _delta_sql(self: Generator, expression: DATEΤΙΜΕ_DELTA) -> str:
+def _datetime_delta_sql(name: str) -> t.Callable[[Generator, DATETIME_DELTA], str]:
+    def _delta_sql(self: Generator, expression: DATETIME_DELTA) -> str:
         if not expression.unit:
             return rename_func(name)(self, expression)
 
@@ -398,10 +398,12 @@ class ClickHouse(Dialect):
             exp.CurrentSchemas: rename_func("CURRENT_SCHEMAS"),
             exp.CountIf: rename_func("countIf"),
             exp.CosineDistance: rename_func("cosineDistance"),
-            exp.CompressColumnConstraint: lambda self,
-            e: f"CODEC({self.expressions(e, key='this', flat=True)})",
-            exp.ComputedColumnConstraint: lambda self,
-            e: f"{'MATERIALIZED' if e.args.get('persisted') else 'ALIAS'} {self.sql(e, 'this')}",
+            exp.CompressColumnConstraint: lambda self, e: (
+                f"CODEC({self.expressions(e, key='this', flat=True)})"
+            ),
+            exp.ComputedColumnConstraint: lambda self, e: (
+                f"{'MATERIALIZED' if e.args.get('persisted') else 'ALIAS'} {self.sql(e, 'this')}"
+            ),
             exp.CurrentDate: lambda self, e: self.func("CURRENT_DATE"),
             exp.CurrentVersion: rename_func("VERSION"),
             exp.DateAdd: _datetime_delta_sql("DATE_ADD"),

@@ -10,7 +10,7 @@ from sqlglot.dialects.dialect import (
     build_date_delta,
     map_date_part,
 )
-from sqlglot.helper import mypyc_attr, seq_get
+from sqlglot.helper import seq_get
 from sqlglot.parser import build_coalesce
 from sqlglot.time import format_time
 from sqlglot.tokens import TokenType
@@ -303,12 +303,16 @@ def _build_datetrunc(args: t.List) -> exp.TimestampTrunc:
     return exp.TimestampTrunc(this=this, unit=unit)
 
 
-@mypyc_attr(allow_interpreted_subclasses=True)
-class Parser(parser.Parser):
+class TSQLParser(parser.Parser):
     SET_REQUIRES_ASSIGNMENT_DELIMITER = False
     LOG_DEFAULTS_TO_LN = True
     STRING_ALIASES = True
     NO_PAREN_IF_COMMANDS = False
+
+    NO_PAREN_FUNCTIONS = {
+        **parser.Parser.NO_PAREN_FUNCTIONS,
+        TokenType.SESSION_USER: exp.SessionUser,
+    }
 
     QUERY_MODIFIER_PARSERS = {
         **parser.Parser.QUERY_MODIFIER_PARSERS,
@@ -319,7 +323,9 @@ class Parser(parser.Parser):
     # T-SQL does not allow BEGIN to be used as an identifier
     ID_VAR_TOKENS = parser.Parser.ID_VAR_TOKENS - {TokenType.BEGIN}
     ALIAS_TOKENS = parser.Parser.ALIAS_TOKENS - {TokenType.BEGIN}
-    TABLE_ALIAS_TOKENS = parser.Parser.TABLE_ALIAS_TOKENS - {TokenType.BEGIN}
+    TABLE_ALIAS_TOKENS = (parser.Parser.TABLE_ALIAS_TOKENS | {TokenType.ANTI, TokenType.SEMI}) - {
+        TokenType.BEGIN
+    }
     COMMENT_TABLE_ALIAS_TOKENS = parser.Parser.COMMENT_TABLE_ALIAS_TOKENS - {TokenType.BEGIN}
     UPDATE_ALIAS_TOKENS = parser.Parser.UPDATE_ALIAS_TOKENS - {TokenType.BEGIN}
 
@@ -388,9 +394,9 @@ class Parser(parser.Parser):
     RANGE_PARSERS = {
         **parser.Parser.RANGE_PARSERS,
         TokenType.DCOLON: lambda self, this: self.expression(
-            exp.ScopeResolution,
-            this=this,
-            expression=self._parse_function() or self._parse_var(any_token=True),
+            exp.ScopeResolution(
+                this=this, expression=self._parse_function() or self._parse_var(any_token=True)
+            )
         ),
     }
 
@@ -402,10 +408,11 @@ class Parser(parser.Parser):
     FUNCTION_PARSERS = {
         **parser.Parser.FUNCTION_PARSERS,
         "JSON_ARRAYAGG": lambda self: self.expression(
-            exp.JSONArrayAgg,
-            this=self._parse_bitwise(),
-            order=self._parse_order(),
-            null_handling=self._parse_on_handling("NULL", "NULL", "ABSENT"),
+            exp.JSONArrayAgg(
+                this=self._parse_bitwise(),
+                order=self._parse_order(),
+                null_handling=self._parse_on_handling("NULL", "NULL", "ABSENT"),
+            )
         ),
         "DATEPART": lambda self: self._parse_datepart(),
     }
@@ -413,9 +420,11 @@ class Parser(parser.Parser):
     # The DCOLON (::) operator serves as a scope resolution (exp.ScopeResolution) operator in T-SQL
     COLUMN_OPERATORS = {
         **parser.Parser.COLUMN_OPERATORS,
-        TokenType.DCOLON: lambda self, this, to: self.expression(exp.Cast, this=this, to=to)
-        if isinstance(to, exp.DataType) and to.this != exp.DType.USERDEFINED
-        else self.expression(exp.ScopeResolution, this=this, expression=to),
+        TokenType.DCOLON: lambda self, this, to: (
+            self.expression(exp.Cast(this=this, to=to))
+            if isinstance(to, exp.DataType) and to.this != exp.DType.USERDEFINED
+            else self.expression(exp.ScopeResolution(this=this, expression=to))
+        ),
     }
 
     SET_OP_MODIFIERS = {"offset"}
@@ -428,13 +437,14 @@ class Parser(parser.Parser):
 
     def _parse_execute(self) -> exp.Execute:
         execute = self.expression(
-            exp.Execute,
-            this=self._parse_table(schema=True),
-            expressions=self._parse_csv(self._parse_expression),
+            exp.Execute(
+                this=self._parse_table(schema=True),
+                expressions=self._parse_csv(self._parse_expression),
+            )
         )
 
         if execute.name.lower() == "sp_executesql":
-            execute = self.expression(exp.ExecuteSql, **execute.args)
+            execute = self.expression(exp.ExecuteSql(**execute.args))
 
         return execute
 
@@ -443,7 +453,7 @@ class Parser(parser.Parser):
         expression = self._match(TokenType.COMMA) and self._parse_bitwise()
         name = map_date_part(this, self.dialect)
 
-        return self.expression(exp.Extract, this=name, expression=expression)
+        return self.expression(exp.Extract(this=name, expression=expression))
 
     def _parse_alter_table_set(self) -> exp.AlterSet:
         return self._parse_wrapped(super()._parse_alter_table_set)
@@ -476,7 +486,7 @@ class Parser(parser.Parser):
 
             self._match(TokenType.EQ)
             return self.expression(
-                exp.QueryOption, this=option, expression=self._parse_primary_or_var()
+                exp.QueryOption(this=option, expression=self._parse_primary_or_var())
             )
 
         return self._parse_wrapped_csv(_parse_option)
@@ -496,9 +506,10 @@ class Parser(parser.Parser):
 
         def _parse_for_xml() -> t.Optional[exp.Expr]:
             return self.expression(
-                exp.QueryOption,
-                this=self._parse_var_from_options(XML_OPTIONS, raise_unmatched=False)
-                or self._parse_xml_key_value_option(),
+                exp.QueryOption(
+                    this=self._parse_var_from_options(XML_OPTIONS, raise_unmatched=False)
+                    or self._parse_xml_key_value_option()
+                )
             )
 
         return self._parse_csv(_parse_for_xml)
@@ -538,7 +549,7 @@ class Parser(parser.Parser):
         this = self._parse_id_var()
 
         if rollback:
-            return self.expression(exp.Rollback, this=this)
+            return self.expression(exp.Rollback(this=this))
 
         durability = None
         if self._match_pair(TokenType.WITH, TokenType.L_PAREN):
@@ -553,7 +564,7 @@ class Parser(parser.Parser):
 
             self._match_r_paren()
 
-        return self.expression(exp.Commit, this=this, durability=durability)
+        return self.expression(exp.Commit(this=this, durability=durability))
 
     def _parse_transaction(self) -> exp.Transaction | exp.Command:
         """Applies to SQL Server and Azure SQL Database
@@ -563,7 +574,7 @@ class Parser(parser.Parser):
         ]
         """
         if self._match_texts(("TRAN", "TRANSACTION")):
-            transaction = self.expression(exp.Transaction, this=self._parse_id_var())
+            transaction = self.expression(exp.Transaction(this=self._parse_id_var()))
             if self._match_text_seq("WITH", "MARK"):
                 transaction.set("mark", self._parse_string())
 
@@ -613,13 +624,14 @@ class Parser(parser.Parser):
                 expressions = self._parse_csv(self._parse_function_parameter)
 
             return self.expression(
-                exp.StoredProcedure,
-                this=this if isinstance(this, exp.Table) else this.this,
-                expressions=expressions,
-                wrapped=this.args.get("wrapped"),
+                exp.StoredProcedure(
+                    this=this if isinstance(this, exp.Table) else this.this,
+                    expressions=expressions,
+                    wrapped=this.args.get("wrapped"),
+                )
             )
 
-        return self.expression(exp.UserDefinedFunction, this=this)
+        return self.expression(exp.UserDefinedFunction(this=this))
 
     def _parse_into(self) -> t.Optional[exp.Into]:
         into = super()._parse_into()
@@ -669,7 +681,7 @@ class Parser(parser.Parser):
 
         false = self._match(TokenType.ELSE) and self._parse_block()
 
-        return self.expression(exp.IfBlock, this=this, true=true, false=false)
+        return self.expression(exp.IfBlock(this=this, true=true, false=false))
 
     def _parse_unique(self) -> exp.UniqueColumnConstraint:
         if self._match_texts(("CLUSTERED", "NONCLUSTERED")):
@@ -677,7 +689,7 @@ class Parser(parser.Parser):
         else:
             this = self._parse_schema(self._parse_id_var(any_token=False))
 
-        return self.expression(exp.UniqueColumnConstraint, this=this)
+        return self.expression(exp.UniqueColumnConstraint(this=this))
 
     def _parse_update(self) -> exp.Update:
         expression = super()._parse_update()
@@ -692,9 +704,9 @@ class Parser(parser.Parser):
             low = self._parse_bitwise()
             high = self._parse_bitwise() if self._match_text_seq("TO") else None
 
-            return self.expression(exp.PartitionRange, this=low, expression=high) if high else low
+            return self.expression(exp.PartitionRange(this=low, expression=high)) if high else low
 
-        partition = self.expression(exp.Partition, expressions=self._parse_wrapped_csv(parse_range))
+        partition = self.expression(exp.Partition(expressions=self._parse_wrapped_csv(parse_range)))
 
         self._match_r_paren()
 

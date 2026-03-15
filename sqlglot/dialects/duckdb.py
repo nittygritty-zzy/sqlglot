@@ -42,7 +42,7 @@ from sqlglot.dialects.dialect import (
 )
 from sqlglot.generator import unsupported_args
 from sqlglot.helper import is_date_unit, seq_get
-from sqlglot.parsers.duckdb import Parser as DuckDBParser
+from sqlglot.parsers.duckdb import DuckDBParser
 from sqlglot.tokens import TokenType
 from sqlglot.typing.duckdb import EXPRESSION_METADATA
 
@@ -531,11 +531,6 @@ def _array_sort_sql(self: DuckDB.Generator, expression: exp.ArraySort) -> str:
     return self.func("ARRAY_SORT", expression.this)
 
 
-def _sort_array_sql(self: DuckDB.Generator, expression: exp.SortArray) -> str:
-    name = "ARRAY_REVERSE_SORT" if expression.args.get("asc") == exp.false() else "ARRAY_SORT"
-    return self.func(name, expression.this)
-
-
 def _array_contains_sql(self: DuckDB.Generator, expression: exp.ArrayContains) -> str:
     this = expression.this
     expr = expression.expression
@@ -803,37 +798,43 @@ def _week_unit_to_dow(unit: t.Optional[exp.Expr]) -> t.Optional[int]:
     return None
 
 
-def _build_week_trunc_expression(date_expr: exp.Expr, start_dow: int) -> exp.Expr:
+def _build_week_trunc_expression(
+    date_expr: exp.Expr,
+    start_dow: int,
+    preserve_start_day: bool = False,
+) -> exp.Expr:
     """
     Build DATE_TRUNC expression for week boundaries with custom start day.
 
+    DuckDB's DATE_TRUNC('WEEK', ...) always returns Monday. To align to a different
+    start day, we shift the date before truncating.
+
     Args:
-        date_expr: The date expression to truncate
-        shift_days: ISO 8601 day-of-week number (Monday=0, ..., Sunday=6)
+        date_expr: The date expression to truncate.
+        start_dow: ISO 8601 day-of-week number (Monday=1, ..., Sunday=7).
+        preserve_start_day: If True, reverse the shift after truncating so the result lands on the
+            correct week start day. Needed for DATE_TRUNC (absolute result matters) but
+            not for DATE_DIFF (only relative alignment matters).
 
-    DuckDB's DATE_TRUNC('WEEK', ...) aligns weeks to Monday (ISO standard).
-    To align to a different start day, we shift the date before truncating.
-
-    Shift formula: Sunday (7) gets +1, others get (1 - start_dow)
-    Examples:
-        Monday (1): shift = 0 (no shift needed)
-        Tuesday (2): shift = -1 (shift back 1 day) ...
-        Sunday (7): shift = +1 (shift forward 1 day, wraps to next Monday-based week)
+    Shift formula: Sunday (7) gets +1, others get (1 - start_dow).
     """
     shift_days = 1 if start_dow == 7 else 1 - start_dow
+    truncated = exp.func("DATE_TRUNC", unit=exp.var("WEEK"), this=date_expr)
 
-    # Shift date to align week boundaries with the desired start day
-    # No shift needed for Monday-based weeks (shift_days == 0)
-    shifted_date = (
-        exp.DateAdd(
-            this=date_expr,
-            expression=exp.Interval(this=exp.Literal.string(str(shift_days)), unit=exp.var("DAY")),
+    if shift_days == 0:
+        return truncated
+
+    shift = exp.Interval(this=exp.Literal.string(str(shift_days)), unit=exp.var("DAY"))
+    shifted_date = exp.DateAdd(this=date_expr, expression=shift)
+    truncated.set("this", shifted_date)
+
+    if preserve_start_day:
+        interval = exp.Interval(this=exp.Literal.string(str(-shift_days)), unit=exp.var("DAY"))
+        return exp.cast(
+            exp.DateAdd(this=truncated, expression=interval), to=exp.DType.DATE, copy=False
         )
-        if shift_days != 0
-        else date_expr
-    )
 
-    return exp.DateTrunc(unit=exp.var("WEEK"), this=shifted_date)
+    return truncated
 
 
 def _date_diff_sql(self: DuckDB.Generator, expression: exp.DateDiff) -> str:
@@ -1635,11 +1636,15 @@ class DuckDB(Dialect):
             exp.CurrentSchemas: lambda self, e: self.func(
                 "current_schemas", e.this if e.this else exp.true()
             ),
-            exp.CurrentTimestamp: lambda self, e: self.sql(
-                exp.AtTimeZone(this=exp.var("CURRENT_TIMESTAMP"), zone=exp.Literal.string("UTC"))
-            )
-            if e.args.get("sysdate")
-            else "CURRENT_TIMESTAMP",
+            exp.CurrentTimestamp: lambda self, e: (
+                self.sql(
+                    exp.AtTimeZone(
+                        this=exp.var("CURRENT_TIMESTAMP"), zone=exp.Literal.string("UTC")
+                    )
+                )
+                if e.args.get("sysdate")
+                else "CURRENT_TIMESTAMP"
+            ),
             exp.CurrentVersion: rename_func("version"),
             exp.Localtime: unsupported_args("this")(lambda *_: "LOCALTIME"),
             exp.DayOfMonth: rename_func("DAYOFMONTH"),
@@ -1667,11 +1672,13 @@ class DuckDB(Dialect):
             exp.DatetimeDiff: _date_diff_sql,
             exp.DatetimeSub: _date_delta_to_binary_interval_op(),
             exp.DatetimeAdd: _date_delta_to_binary_interval_op(),
-            exp.DateToDi: lambda self,
-            e: f"CAST(STRFTIME({self.sql(e, 'this')}, {DuckDB.DATEINT_FORMAT}) AS INT)",
+            exp.DateToDi: lambda self, e: (
+                f"CAST(STRFTIME({self.sql(e, 'this')}, {DuckDB.DATEINT_FORMAT}) AS INT)"
+            ),
             exp.Decode: lambda self, e: encode_decode_sql(self, e, "DECODE", replace=False),
-            exp.DiToDate: lambda self,
-            e: f"CAST(STRPTIME(CAST({self.sql(e, 'this')} AS TEXT), {DuckDB.DATEINT_FORMAT}) AS DATE)",
+            exp.DiToDate: lambda self, e: (
+                f"CAST(STRPTIME(CAST({self.sql(e, 'this')} AS TEXT), {DuckDB.DATEINT_FORMAT}) AS DATE)"
+            ),
             exp.Encode: lambda self, e: encode_decode_sql(self, e, "ENCODE", replace=False),
             exp.EqualNull: lambda self, e: self.sql(
                 exp.NullSafeEQ(this=e.this, expression=e.expression)
@@ -1732,7 +1739,6 @@ class DuckDB(Dialect):
             exp.RegrValy: _regr_val_sql,
             exp.Return: lambda self, e: self.sql(e, "this"),
             exp.ReturnsProperty: lambda self, e: "TABLE" if isinstance(e.this, exp.Schema) else "",
-            exp.SortArray: _sort_array_sql,
             exp.StrPosition: strposition_sql,
             exp.StrToUnix: lambda self, e: self.func(
                 "EPOCH", self.func("STRPTIME", e.this, self.format_time(e))
@@ -1756,9 +1762,13 @@ class DuckDB(Dialect):
             ),
             exp.TimeToStr: lambda self, e: self.func("STRFTIME", e.this, self.format_time(e)),
             exp.ToBoolean: _to_boolean_sql,
+            exp.ToVariant: lambda self, e: self.sql(
+                exp.cast(e.this, exp.DataType.build("VARIANT", dialect="duckdb"))
+            ),
             exp.TimeToUnix: rename_func("EPOCH"),
-            exp.TsOrDiToDi: lambda self,
-            e: f"CAST(SUBSTR(REPLACE(CAST({self.sql(e, 'this')} AS TEXT), '-', ''), 1, 8) AS INT)",
+            exp.TsOrDiToDi: lambda self, e: (
+                f"CAST(SUBSTR(REPLACE(CAST({self.sql(e, 'this')} AS TEXT), '-', ''), 1, 8) AS INT)"
+            ),
             exp.TsOrDsAdd: _date_delta_to_binary_interval_op(),
             exp.TsOrDsDiff: lambda self, e: self.func(
                 "DATE_DIFF",
@@ -2457,6 +2467,33 @@ class DuckDB(Dialect):
 
         def show_sql(self, expression: exp.Show) -> str:
             return f"SHOW {expression.name}"
+
+        def sortarray_sql(self, expression: exp.SortArray) -> str:
+            arr = expression.this
+            asc = expression.args.get("asc")
+            nulls_first = expression.args.get("nulls_first")
+
+            if not isinstance(asc, exp.Boolean) and not isinstance(nulls_first, exp.Boolean):
+                return self.func("LIST_SORT", arr, asc, nulls_first)
+
+            nulls_are_first = nulls_first == exp.true()
+            nulls_first_sql = exp.Literal.string("NULLS FIRST") if nulls_are_first else None
+
+            if not isinstance(asc, exp.Boolean):
+                return self.func("LIST_SORT", arr, asc, nulls_first_sql)
+
+            descending = asc == exp.false()
+
+            if not descending and not nulls_are_first:
+                return self.func("LIST_SORT", arr)
+            if not nulls_are_first:
+                return self.func("ARRAY_REVERSE_SORT", arr)
+            return self.func(
+                "LIST_SORT",
+                arr,
+                exp.Literal.string("DESC" if descending else "ASC"),
+                exp.Literal.string("NULLS FIRST"),
+            )
 
         def install_sql(self, expression: exp.Install) -> str:
             force = "FORCE " if expression.args.get("force") else ""
@@ -3560,6 +3597,66 @@ class DuckDB(Dialect):
 
             return self.sql(case_expr if needs_case else base_func)
 
+        def splitpart_sql(self, expression: exp.SplitPart) -> str:
+            string_arg = expression.this
+            delimiter_arg = expression.args.get("delimiter")
+            part_index_arg = expression.args.get("part_index")
+
+            if delimiter_arg and part_index_arg:
+                # Handle Snowflake's "index 0 and 1 both return first element" behavior
+                if expression.args.get("part_index_zero_as_one"):
+                    # Convert 0 to 1 for compatibility
+
+                    part_index_arg = exp.Paren(
+                        this=exp.case()
+                        .when(part_index_arg.eq(exp.Literal.number("0")), exp.Literal.number("1"))
+                        .else_(part_index_arg)
+                    )
+
+                # Use Anonymous to avoid recursion
+                base_func_expr: exp.Expr = exp.Anonymous(
+                    this="SPLIT_PART", expressions=[string_arg, delimiter_arg, part_index_arg]
+                )
+                needs_case_transform = False
+                case_expr = exp.case().else_(base_func_expr)
+
+                if expression.args.get("empty_delimiter_returns_whole"):
+                    # When delimiter is empty string:
+                    # - Return whole string if part_index is 1 or -1
+                    # - Return empty string otherwise
+                    empty_case = exp.Paren(
+                        this=exp.case()
+                        .when(
+                            exp.or_(
+                                part_index_arg.eq(exp.Literal.number("1")),
+                                part_index_arg.eq(exp.Literal.number("-1")),
+                            ),
+                            string_arg,
+                        )
+                        .else_(exp.Literal.string(""))
+                    )
+
+                    case_expr = case_expr.when(delimiter_arg.eq(exp.Literal.string("")), empty_case)
+                    needs_case_transform = True
+
+                """
+                Output looks something like this:
+
+                CASE 
+                WHEN delimiter is '' THEN 
+                    (
+                        CASE 
+                        WHEN adjusted_part_index = 1 OR adjusted_part_index = -1 THEN input
+                        ELSE '' END
+                    ) 
+                ELSE SPLIT_PART(input, delimiter, adjusted_part_index) 
+                END
+
+                """
+                return self.sql(case_expr if needs_case_transform else base_func_expr)
+
+            return self.function_fallback_sql(expression)
+
         def respectnulls_sql(self, expression: exp.RespectNulls) -> str:
             if isinstance(expression.this, self.IGNORE_RESPECT_NULLS_WINDOW_FUNCTIONS):
                 # DuckDB should render RESPECT NULLS only for the general-purpose
@@ -3850,9 +3947,18 @@ class DuckDB(Dialect):
             return super().hexstring_sql(expression, binary_function_repr="UNHEX")
 
         def datetrunc_sql(self, expression: exp.DateTrunc) -> str:
-            unit = unit_to_str(expression)
+            unit = expression.args.get("unit")
             date = expression.this
-            result = self.func("DATE_TRUNC", unit, date)
+
+            week_start = _week_unit_to_dow(unit)
+            unit = unit_to_str(expression)
+
+            if week_start:
+                result = self.sql(
+                    _build_week_trunc_expression(date, week_start, preserve_start_day=True)
+                )
+            else:
+                result = self.func("DATE_TRUNC", unit, date)
 
             if (
                 expression.args.get("input_type_preserved")

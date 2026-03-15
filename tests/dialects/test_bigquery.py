@@ -2695,6 +2695,34 @@ OPTIONS (
                 },
             )
 
+    def test_null_ordering_in_analytic_functions(self):
+        for func_call in (
+            "FIRST_VALUE(col1)",
+            "LAST_VALUE(col1)",
+            "NTH_VALUE(col1, 2)",
+        ):
+            for sort_order, null_order in (("ASC", "NULLS LAST"), ("DESC", "NULLS FIRST")):
+                with self.subTest(f"{func_call} with {sort_order} {null_order} ROWS"):
+                    self.validate_identity(
+                        f"WITH t AS (SELECT 1 AS id, 2 AS col1) SELECT {func_call} OVER (PARTITION BY id ORDER BY col1 {sort_order} {null_order} ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) FROM t"
+                    )
+
+        for func_call in (
+            "LAG(col1)",
+            "LEAD(col1)",
+            "CUME_DIST()",
+            "DENSE_RANK()",
+            "NTILE(4)",
+            "PERCENT_RANK()",
+            "RANK()",
+            "ROW_NUMBER()",
+        ):
+            for sort_order, null_order in (("ASC", "NULLS LAST"), ("DESC", "NULLS FIRST")):
+                with self.subTest(f"{func_call} with {sort_order} {null_order}"):
+                    self.validate_identity(
+                        f"WITH t AS (SELECT 1 AS id, 2 AS col1) SELECT {func_call} OVER (PARTITION BY id ORDER BY col1 {sort_order} {null_order}) FROM t"
+                    )
+
     def test_json_extract(self):
         self.validate_all(
             """SELECT JSON_QUERY('{"class": {"students": []}}', '$.class')""",
@@ -3267,6 +3295,45 @@ OPTIONS (
             "EXTRACT(WEEK(THURSDAY) FROM DATE '2013-12-25')",
             "EXTRACT(WEEK(THURSDAY) FROM CAST('2013-12-25' AS DATE))",
         )
+
+        week_trunc = {
+            "MONDAY": ("WEEK(MONDAY)", "DATE_TRUNC('WEEK', date)"),
+            "TUESDAY": (
+                "WEEK(TUESDAY)",
+                "CAST(DATE_TRUNC('WEEK', date + INTERVAL '-1' DAY) + INTERVAL '1' DAY AS DATE)",
+            ),
+            "WEDNESDAY": (
+                "WEEK(WEDNESDAY)",
+                "CAST(DATE_TRUNC('WEEK', date + INTERVAL '-2' DAY) + INTERVAL '2' DAY AS DATE)",
+            ),
+            "THURSDAY": (
+                "WEEK(THURSDAY)",
+                "CAST(DATE_TRUNC('WEEK', date + INTERVAL '-3' DAY) + INTERVAL '3' DAY AS DATE)",
+            ),
+            "FRIDAY": (
+                "WEEK(FRIDAY)",
+                "CAST(DATE_TRUNC('WEEK', date + INTERVAL '-4' DAY) + INTERVAL '4' DAY AS DATE)",
+            ),
+            "SATURDAY": (
+                "WEEK(SATURDAY)",
+                "CAST(DATE_TRUNC('WEEK', date + INTERVAL '-5' DAY) + INTERVAL '5' DAY AS DATE)",
+            ),
+            "SUNDAY": (
+                "WEEK",
+                "CAST(DATE_TRUNC('WEEK', date + INTERVAL '1' DAY) + INTERVAL '-1' DAY AS DATE)",
+            ),
+        }
+        for day, (bq_unit, duckdb_sql) in week_trunc.items():
+            with self.subTest(
+                f"Testing transpilation of DATE_TRUNC from Bigquery to Duckdb for unit: {day}"
+            ):
+                self.validate_all(
+                    f"SELECT DATE_TRUNC(date, WEEK({day}))",
+                    write={
+                        "bigquery": f"SELECT DATE_TRUNC(date, {bq_unit})",
+                        "duckdb": f"SELECT {duckdb_sql}",
+                    },
+                )
 
         # BigQuery → DuckDB transpilation tests for DATE_DIFF with week units
         self.validate_all(

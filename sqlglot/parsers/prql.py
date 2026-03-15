@@ -3,7 +3,7 @@ from __future__ import annotations
 import typing as t
 
 from sqlglot import exp, parser
-from sqlglot.helper import mypyc_attr, seq_get
+from sqlglot.helper import seq_get
 from sqlglot.tokens import TokenType
 
 
@@ -17,7 +17,6 @@ def _resolve_projection(s: exp.Expr, projections: t.Dict[str, exp.Expr]) -> exp.
     return s
 
 
-@mypyc_attr(allow_interpreted_subclasses=True)
 class PRQLParser(parser.Parser):
     CONJUNCTION = {
         **parser.Parser.CONJUNCTION,
@@ -135,15 +134,15 @@ class PRQLParser(parser.Parser):
         expressions = self._parse_csv(self._parse_ordered)
         if l_brace and not self._match(TokenType.R_BRACE):
             self.raise_error("Expecting }")
-        return query.order_by(self.expression(exp.Order, expressions=expressions), copy=False)
+        return query.order_by(self.expression(exp.Order(expressions=expressions)), copy=False)
 
     def _parse_aggregate(self) -> t.Optional[exp.Expr]:
         alias = None
-        if self._next and self._next.token_type == TokenType.ALIAS:
+        if self._next.token_type == TokenType.ALIAS:
             alias = self._parse_id_var(any_token=True)
             self._match(TokenType.ALIAS)
 
-        name = self._curr and self._curr.text.upper()
+        name = self._curr.text.upper()
         func_builder = self.FUNCTIONS.get(name)
         if func_builder:
             self._advance()
@@ -152,14 +151,14 @@ class PRQLParser(parser.Parser):
         else:
             self.raise_error(f"Unsupported aggregation function {name}")
         if alias:
-            return self.expression(exp.Alias, this=func, alias=alias)
+            return self.expression(exp.Alias(this=func, alias=alias))
         return func
 
     def _parse_expression(self) -> t.Optional[exp.Expr]:
-        if self._next and self._next.token_type == TokenType.ALIAS:
+        if self._next.token_type == TokenType.ALIAS:
             alias = self._parse_id_var(True)
             self._match(TokenType.ALIAS)
-            return self.expression(exp.Alias, this=self._parse_assignment(), alias=alias)
+            return self.expression(exp.Alias(this=self._parse_assignment(), alias=alias))
         return self._parse_assignment()
 
     def _parse_table(
@@ -183,6 +182,8 @@ class PRQLParser(parser.Parser):
         if not skip_from_token and not self._match(TokenType.FROM):
             return None
 
+        comments = self._prev_comments
         return self.expression(
-            exp.From, comments=self._prev_comments, this=self._parse_table(joins=joins)
+            exp.From(this=self._parse_table(joins=joins)),
+            comments=comments,
         )

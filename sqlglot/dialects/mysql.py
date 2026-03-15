@@ -26,7 +26,7 @@ from sqlglot.dialects.dialect import (
     timestrtotime_sql,
 )
 from sqlglot.generator import unsupported_args
-from sqlglot.parsers.mysql import Parser as MySQLParser
+from sqlglot.parsers.mysql import MySQLParser
 from sqlglot.tokens import TokenType
 from sqlglot.typing.mysql import EXPRESSION_METADATA
 
@@ -126,7 +126,6 @@ class MySQL(Dialect):
     TIME_FORMAT = "'%Y-%m-%d %T'"
     DPIPE_IS_STRING_CONCAT = False
     SUPPORTS_USER_DEFINED_TYPES = False
-    SUPPORTS_SEMI_ANTI_JOIN = False
     SAFE_DIVISION = True
     SAFE_TO_ELIMINATE_DOUBLE_NEGATION = False
     LEAST_GREATEST_IGNORES_NULLS = False
@@ -298,8 +297,9 @@ class MySQL(Dialect):
             exp.DayOfMonth: _remove_ts_or_ds_to_date(rename_func("DAYOFMONTH")),
             exp.DayOfWeek: _remove_ts_or_ds_to_date(rename_func("DAYOFWEEK")),
             exp.DayOfYear: _remove_ts_or_ds_to_date(rename_func("DAYOFYEAR")),
-            exp.GroupConcat: lambda self,
-            e: f"""GROUP_CONCAT({self.sql(e, "this")} SEPARATOR {self.sql(e, "separator") or "','"})""",
+            exp.GroupConcat: lambda self, e: (
+                f"""GROUP_CONCAT({self.sql(e, "this")} SEPARATOR {self.sql(e, "separator") or "','"})"""
+            ),
             exp.ILike: no_ilike_sql,
             exp.JSONExtractScalar: arrow_json_extract_sql,
             exp.Length: length_or_char_length_sql,

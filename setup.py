@@ -11,7 +11,7 @@ setup(
             "pytz",
             "pdoc",
             "pre-commit",
-            "ruff==0.7.2",
+            "ruff==0.15.6",
             "types-python-dateutil",
             "types-pytz",
             "typing_extensions",
@@ -20,6 +20,6 @@ setup(
         # Compiles from source on the user's machine.
         "c": ["sqlglotc"],
         # Deprecated: the Rust tokenizer has been replaced by sqlglotc.
-        "rs": ["sqlglotrs==0.13.0"],
+        "rs": ["sqlglotrs==0.13.0", "sqlglotc"],
     },
 )

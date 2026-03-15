@@ -10,7 +10,7 @@ from sqlglot.dialects.dialect import (
     build_json_extract_path,
     build_timestamp_trunc,
 )
-from sqlglot.helper import is_int, mypyc_attr, seq_get
+from sqlglot.helper import is_int, seq_get
 from sqlglot.parser import binary_range_parser
 from sqlglot.tokens import TokenType
 
@@ -80,18 +80,17 @@ def _build_levenshtein_less_equal(args: t.List) -> exp.Levenshtein:
     )
 
 
-@mypyc_attr(allow_interpreted_subclasses=True)
-class Parser(parser.Parser):
+class PostgresParser(parser.Parser):
     SUPPORTS_OMITTED_INTERVAL_SPAN_UNIT = True
 
     PROPERTY_PARSERS = {
         **{k: v for k, v in parser.Parser.PROPERTY_PARSERS.items() if k != "INPUT"},
-        "SET": lambda self: self.expression(exp.SetConfigProperty, this=self._parse_set()),
+        "SET": lambda self: self.expression(exp.SetConfigProperty(this=self._parse_set())),
     }
 
     PLACEHOLDER_PARSERS = {
         **parser.Parser.PLACEHOLDER_PARSERS,
-        TokenType.PLACEHOLDER: lambda self: self.expression(exp.Placeholder, jdbc=True),
+        TokenType.PLACEHOLDER: lambda self: self.expression(exp.Placeholder(jdbc=True)),
         TokenType.MOD: lambda self: self._parse_query_parameter(),
     }
 
@@ -127,20 +126,24 @@ class Parser(parser.Parser):
         "LEVENSHTEIN_LESS_EQUAL": _build_levenshtein_less_equal,
         "JSON_OBJECT_AGG": lambda args: exp.JSONObjectAgg(expressions=args),
         "JSONB_OBJECT_AGG": exp.JSONBObjectAgg.from_arg_list,
-        "WIDTH_BUCKET": lambda args: exp.WidthBucket(
-            this=seq_get(args, 0), threshold=seq_get(args, 1)
-        )
-        if len(args) == 2
-        else exp.WidthBucket.from_arg_list(args),
+        "WIDTH_BUCKET": lambda args: (
+            exp.WidthBucket(this=seq_get(args, 0), threshold=seq_get(args, 1))
+            if len(args) == 2
+            else exp.WidthBucket.from_arg_list(args)
+        ),
     }
 
     NO_PAREN_FUNCTION_PARSERS = {
         **parser.Parser.NO_PAREN_FUNCTION_PARSERS,
-        "VARIADIC": lambda self: self.expression(exp.Variadic, this=self._parse_bitwise()),
+        "VARIADIC": lambda self: self.expression(exp.Variadic(this=self._parse_bitwise())),
     }
 
     NO_PAREN_FUNCTIONS = {
         **parser.Parser.NO_PAREN_FUNCTIONS,
+        TokenType.LOCALTIME: exp.Localtime,
+        TokenType.LOCALTIMESTAMP: exp.Localtimestamp,
+        TokenType.CURRENT_CATALOG: exp.CurrentCatalog,
+        TokenType.SESSION_USER: exp.SessionUser,
         TokenType.CURRENT_SCHEMA: exp.CurrentSchema,
     }
 
@@ -148,9 +151,7 @@ class Parser(parser.Parser):
         **parser.Parser.FUNCTION_PARSERS,
         "DATE_PART": lambda self: self._parse_date_part(),
         "JSON_AGG": lambda self: self.expression(
-            exp.JSONArrayAgg,
-            this=self._parse_lambda(),
-            order=self._parse_order(),
+            exp.JSONArrayAgg(this=self._parse_lambda(), order=self._parse_order())
         ),
         "JSONB_EXISTS": lambda self: self._parse_jsonb_exists(),
     }
@@ -168,7 +169,7 @@ class Parser(parser.Parser):
         **parser.Parser.RANGE_PARSERS,
         TokenType.DAMP: binary_range_parser(exp.ArrayOverlaps),
         TokenType.DAT: lambda self, this: self.expression(
-            exp.MatchAgainst, this=self._parse_bitwise(), expressions=[this]
+            exp.MatchAgainst(this=self._parse_bitwise(), expressions=[this])
         ),
     }
 
@@ -180,7 +181,7 @@ class Parser(parser.Parser):
     UNARY_PARSERS = {
         **parser.Parser.UNARY_PARSERS,
         # The `~` token is remapped from TILDE to RLIKE in Postgres due to the binary REGEXP LIKE operator
-        TokenType.RLIKE: lambda self: self.expression(exp.BitwiseNot, this=self._parse_unary()),
+        TokenType.RLIKE: lambda self: self.expression(exp.BitwiseNot(this=self._parse_unary())),
     }
 
     JSON_ARROWS_REQUIRE_JSON_TYPE = True
@@ -221,8 +222,10 @@ class Parser(parser.Parser):
         # Try parsing next token as a built-in type (not UDT)
         # If successful, the keyword is an identifier, not a mode
         is_followed_by_builtin_type = self._try_parse(
-            lambda: self._advance()  # type: ignore
-            or self._parse_types(check_func=False, allow_identifiers=False),
+            lambda: (
+                self._advance()  # type: ignore
+                or self._parse_types(check_func=False, allow_identifiers=False)
+            ),
             retreat=True,
         )
         if is_followed_by_builtin_type:
@@ -235,8 +238,10 @@ class Parser(parser.Parser):
             return None
 
         is_followed_by_any_type = self._try_parse(
-            lambda: self._advance(2)  # type: ignore
-            or self._parse_types(check_func=False, allow_identifiers=True),
+            lambda: (
+                self._advance(2)  # type: ignore
+                or self._parse_types(check_func=False, allow_identifiers=True)
+            ),
             retreat=True,
         )
 
@@ -256,10 +261,11 @@ class Parser(parser.Parser):
             InOutColumnConstraint expression representing the parameter mode.
         """
         return self.expression(
-            exp.InOutColumnConstraint,
-            input_=(param_mode in {TokenType.IN, TokenType.INOUT}),
-            output=(param_mode in {TokenType.OUT, TokenType.INOUT}),
-            variadic=(param_mode == TokenType.VARIADIC),
+            exp.InOutColumnConstraint(
+                input_=(param_mode in {TokenType.IN, TokenType.INOUT}),
+                output=(param_mode in {TokenType.OUT, TokenType.INOUT}),
+                variadic=(param_mode == TokenType.VARIADIC),
+            )
         )
 
     def _parse_function_parameter(self) -> t.Optional[exp.Expr]:
@@ -288,7 +294,7 @@ class Parser(parser.Parser):
             else None
         )
         self._match_text_seq("S")
-        return self.expression(exp.Placeholder, this=this)
+        return self.expression(exp.Placeholder(this=this))
 
     def _parse_date_part(self) -> exp.Expr:
         part = self._parse_type()
@@ -298,16 +304,18 @@ class Parser(parser.Parser):
         if part and isinstance(part, (exp.Column, exp.Literal)):
             part = exp.var(part.name)
 
-        return self.expression(exp.Extract, this=part, expression=value)
+        return self.expression(exp.Extract(this=part, expression=value))
 
     def _parse_unique_key(self) -> t.Optional[exp.Expr]:
         return None
 
     def _parse_jsonb_exists(self) -> exp.JSONBExists:
         return self.expression(
-            exp.JSONBExists,
-            this=self._parse_bitwise(),
-            path=self._match(TokenType.COMMA) and self.dialect.to_json_path(self._parse_bitwise()),
+            exp.JSONBExists(
+                this=self._parse_bitwise(),
+                path=self._match(TokenType.COMMA)
+                and self.dialect.to_json_path(self._parse_bitwise()),
+            )
         )
 
     def _parse_generated_as_identity(
@@ -320,7 +328,7 @@ class Parser(parser.Parser):
         this = super()._parse_generated_as_identity()
 
         if self._match_text_seq("STORED"):
-            this = self.expression(exp.ComputedColumnConstraint, this=this.expression)
+            this = self.expression(exp.ComputedColumnConstraint(this=this.expression))
 
         return this
 

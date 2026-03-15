@@ -3,7 +3,6 @@ from __future__ import annotations
 import typing as t
 
 from sqlglot import exp, parser
-from sqlglot.helper import mypyc_attr
 from sqlglot.parser import binary_range_parser
 from sqlglot.tokens import TokenType
 
@@ -16,12 +15,16 @@ def _build_strftime(args: t.List) -> exp.Anonymous | exp.TimeToStr:
     return exp.Anonymous(this="STRFTIME", expressions=args)
 
 
-@mypyc_attr(allow_interpreted_subclasses=True)
 class SQLiteParser(parser.Parser):
     STRING_ALIASES = True
     ALTER_RENAME_REQUIRES_COLUMN = False
     JOINS_HAVE_EQUAL_PRECEDENCE = True
     ADD_JOIN_ON_TRUE = True
+
+    TABLE_ALIAS_TOKENS = parser.Parser.TABLE_ALIAS_TOKENS | {
+        TokenType.ANTI,
+        TokenType.SEMI,
+    }
 
     FUNCTIONS = {
         **parser.Parser.FUNCTIONS,
@@ -50,7 +53,7 @@ class SQLiteParser(parser.Parser):
         # Do not consume more tokens if UNIQUE is used as a standalone constraint, e.g:
         # CREATE TABLE foo (bar TEXT UNIQUE REFERENCES baz ...)
         if self._curr.text.upper() in self.CONSTRAINT_PARSERS:
-            return self.expression(exp.UniqueColumnConstraint)
+            return self.expression(exp.UniqueColumnConstraint())
 
         return super()._parse_unique()
 
@@ -59,7 +62,7 @@ class SQLiteParser(parser.Parser):
         this = self._parse_expression()
 
         return (
-            self.expression(exp.Attach, this=this)
+            self.expression(exp.Attach(this=this))
             if is_attach
-            else self.expression(exp.Detach, this=this)
+            else self.expression(exp.Detach(this=this))
         )

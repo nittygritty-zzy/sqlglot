@@ -4,7 +4,7 @@ import typing as t
 
 from sqlglot import exp, parser
 from sqlglot.dialects.dialect import build_formatted_time, build_timetostr_or_tochar, build_trunc
-from sqlglot.helper import mypyc_attr, seq_get
+from sqlglot.helper import seq_get
 from sqlglot.parser import OPTIONS_TYPE, build_coalesce
 from sqlglot.tokens import TokenType
 
@@ -19,7 +19,6 @@ def _build_to_timestamp(args: t.List) -> exp.StrToTime | exp.Anonymous:
     return build_formatted_time(exp.StrToTime, "oracle")(args)
 
 
-@mypyc_attr(allow_interpreted_subclasses=True)
 class OracleParser(parser.Parser):
     WINDOW_BEFORE_PAREN_TOKENS = {TokenType.OVER, TokenType.KEEP}
     VALUES_FOLLOWED_BY_PAREN = False
@@ -41,13 +40,14 @@ class OracleParser(parser.Parser):
     NO_PAREN_FUNCTION_PARSERS = {
         **parser.Parser.NO_PAREN_FUNCTION_PARSERS,
         "NEXT": lambda self: self._parse_next_value_for(),
-        "PRIOR": lambda self: self.expression(exp.Prior, this=self._parse_bitwise()),
-        "SYSDATE": lambda self: self.expression(exp.CurrentTimestamp, sysdate=True),
+        "PRIOR": lambda self: self.expression(exp.Prior(this=self._parse_bitwise())),
+        "SYSDATE": lambda self: self.expression(exp.CurrentTimestamp(sysdate=True)),
         "DBMS_RANDOM": lambda self: self._parse_dbms_random(),
     }
 
     NO_PAREN_FUNCTIONS = {
         **parser.Parser.NO_PAREN_FUNCTIONS,
+        TokenType.LOCALTIMESTAMP: exp.Localtimestamp,
         TokenType.SYSTIMESTAMP: exp.Systimestamp,
     }
 
@@ -60,11 +60,15 @@ class OracleParser(parser.Parser):
 
     PROPERTY_PARSERS = {
         **parser.Parser.PROPERTY_PARSERS,
-        "GLOBAL": lambda self: self._match_text_seq("TEMPORARY")
-        and self.expression(exp.TemporaryProperty, this="GLOBAL"),
-        "PRIVATE": lambda self: self._match_text_seq("TEMPORARY")
-        and self.expression(exp.TemporaryProperty, this="PRIVATE"),
-        "FORCE": lambda self: self.expression(exp.ForceProperty),
+        "GLOBAL": lambda self: (
+            self._match_text_seq("TEMPORARY")
+            and self.expression(exp.TemporaryProperty(this="GLOBAL"))
+        ),
+        "PRIVATE": lambda self: (
+            self._match_text_seq("TEMPORARY")
+            and self.expression(exp.TemporaryProperty(this="PRIVATE"))
+        ),
+        "FORCE": lambda self: self.expression(exp.ForceProperty()),
     }
 
     QUERY_MODIFIER_PARSERS = {
@@ -74,7 +78,7 @@ class OracleParser(parser.Parser):
     }
 
     TYPE_LITERAL_PARSERS = {
-        exp.DType.DATE: lambda self, this, _: self.expression(exp.DateStrToDate, this=this),
+        exp.DType.DATE: lambda self, this, _: self.expression(exp.DateStrToDate(this=this)),
         # https://docs.oracle.com/en/database/oracle/oracle-database/19/refrn/NLS_TIMESTAMP_FORMAT.html
         exp.DType.TIMESTAMP: lambda self, this, _: _build_to_timestamp(
             [this, '"%Y-%m-%d %H:%M:%S.%f"']
@@ -120,22 +124,23 @@ class OracleParser(parser.Parser):
 
     def _parse_json_array(self, expr_type: t.Type[E], **kwargs) -> E:
         return self.expression(
-            expr_type,
-            null_handling=self._parse_on_handling("NULL", "NULL", "ABSENT"),
-            return_type=self._match_text_seq("RETURNING") and self._parse_type(),
-            strict=self._match_text_seq("STRICT"),
-            **kwargs,
+            expr_type(
+                null_handling=self._parse_on_handling("NULL", "NULL", "ABSENT"),
+                return_type=self._match_text_seq("RETURNING") and self._parse_type(),
+                strict=self._match_text_seq("STRICT"),
+                **kwargs,
+            )
         )
 
     def _parse_hint_function_call(self) -> t.Optional[exp.Expr]:
         if not self._curr or not self._next or self._next.token_type != TokenType.L_PAREN:
             return None
 
-        this = self._curr.text
+        name = self._curr.text
 
         self._advance(2)
         args = self._parse_hint_args()
-        this = self.expression(exp.Anonymous, this=this, expressions=args)
+        this = self.expression(exp.Anonymous(this=name, expressions=args))
         self._match_r_paren(this)
         return this
 
@@ -156,21 +161,22 @@ class OracleParser(parser.Parser):
             return None
 
         return self.expression(
-            exp.QueryOption,
-            this=kind,
-            expression=self._match(TokenType.CONSTRAINT) and self._parse_field(),
+            exp.QueryOption(
+                this=kind, expression=self._match(TokenType.CONSTRAINT) and self._parse_field()
+            )
         )
 
     def _parse_json_exists(self) -> exp.JSONExists:
         this = self._parse_format_json(self._parse_bitwise())
         self._match(TokenType.COMMA)
         return self.expression(
-            exp.JSONExists,
-            this=this,
-            path=self.dialect.to_json_path(self._parse_bitwise()),
-            passing=self._match_text_seq("PASSING")
-            and self._parse_csv(lambda: self._parse_alias(self._parse_bitwise())),
-            on_condition=self._parse_on_condition(),
+            exp.JSONExists(
+                this=this,
+                path=self.dialect.to_json_path(self._parse_bitwise()),
+                passing=self._match_text_seq("PASSING")
+                and self._parse_csv(lambda: self._parse_alias(self._parse_bitwise())),
+                on_condition=self._parse_on_condition(),
+            )
         )
 
     def _parse_into(self) -> t.Optional[exp.Into]:
@@ -186,10 +192,10 @@ class OracleParser(parser.Parser):
             self._retreat(index)
             self._match(TokenType.TABLE)
             return self.expression(
-                exp.Into, this=self._parse_table(schema=True), bulk_collect=bulk_collect
+                exp.Into(this=self._parse_table(schema=True), bulk_collect=bulk_collect)
             )
 
-        return self.expression(exp.Into, bulk_collect=bulk_collect, expressions=expressions)
+        return self.expression(exp.Into(bulk_collect=bulk_collect, expressions=expressions))
 
     def _parse_connect_with_prior(self):
         return self._parse_assignment()

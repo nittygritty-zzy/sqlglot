@@ -10,7 +10,7 @@ from sqlglot.dialects.dialect import (
     unit_to_str,
 )
 from sqlglot.dialects.hive import Hive
-from sqlglot.parsers.spark2 import Parser as Spark2Parser
+from sqlglot.parsers.spark2 import Spark2Parser
 from sqlglot.tokens import TokenType
 from sqlglot.transforms import (
     preprocess,
@@ -152,8 +152,9 @@ class Spark2(Hive):
         TRANSFORMS = {
             **Hive.Generator.TRANSFORMS,
             exp.ApproxDistinct: rename_func("APPROX_COUNT_DISTINCT"),
-            exp.ArraySum: lambda self,
-            e: f"AGGREGATE({self.sql(e, 'this')}, 0, (acc, x) -> acc + x, acc -> acc)",
+            exp.ArraySum: lambda self, e: (
+                f"AGGREGATE({self.sql(e, 'this')}, 0, (acc, x) -> acc + x, acc -> acc)"
+            ),
             exp.ArrayToString: rename_func("ARRAY_JOIN"),
             exp.ArraySlice: rename_func("SLICE"),
             exp.AtTimeZone: lambda self, e: self.func(

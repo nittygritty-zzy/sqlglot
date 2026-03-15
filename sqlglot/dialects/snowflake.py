@@ -32,7 +32,7 @@ from sqlglot.optimizer.scope import build_scope, find_all_in_scope
 from sqlglot.parsers.snowflake import (
     RANKING_WINDOW_FUNCTIONS_WITH_FRAME,
     TIMESTAMP_TYPES,
-    Parser as SnowflakeParser,
+    SnowflakeParser,
     build_object_construct,
 )
 from sqlglot.tokens import TokenType
@@ -378,7 +378,6 @@ class Snowflake(Dialect):
     NULL_ORDERING = "nulls_are_large"
     TIME_FORMAT = "'YYYY-MM-DD HH24:MI:SS'"
     SUPPORTS_USER_DEFINED_TYPES = False
-    SUPPORTS_SEMI_ANTI_JOIN = False
     PREFER_CTE_ALIAS_COLUMN = True
     TABLESAMPLE_SIZE_IS_PERCENT = True
     COPY_PARAMS_ARE_CSV = False
@@ -502,13 +501,19 @@ class Snowflake(Dialect):
             "FILE://": TokenType.URI_START,
             "FILE FORMAT": TokenType.FILE_FORMAT,
             "GET": TokenType.GET,
+            "INTEGRATION": TokenType.INTEGRATION,
             "MATCH_CONDITION": TokenType.MATCH_CONDITION,
             "MATCH_RECOGNIZE": TokenType.MATCH_RECOGNIZE,
             "MINUS": TokenType.EXCEPT,
             "NCHAR VARYING": TokenType.VARCHAR,
+            "PACKAGE": TokenType.PACKAGE,
+            "POLICY": TokenType.POLICY,
+            "POOL": TokenType.POOL,
             "PUT": TokenType.PUT,
             "REMOVE": TokenType.COMMAND,
             "RM": TokenType.COMMAND,
+            "ROLE": TokenType.ROLE,
+            "RULE": TokenType.RULE,
             "SAMPLE": TokenType.TABLE_SAMPLE,
             "SEMANTIC VIEW": TokenType.SEMANTIC_VIEW,
             "SQL_DOUBLE": TokenType.DOUBLE,
@@ -519,6 +524,7 @@ class Snowflake(Dialect):
             "TAG": TokenType.TAG,
             "TIMESTAMP_TZ": TokenType.TIMESTAMPTZ,
             "TOP": TokenType.TOP,
+            "VOLUME": TokenType.VOLUME,
             "WAREHOUSE": TokenType.WAREHOUSE,
             # https://docs.snowflake.com/en/sql-reference/data-types-numeric#float
             # FLOAT is a synonym for DOUBLE in Snowflake
@@ -599,16 +605,16 @@ class Snowflake(Dialect):
             exp.BitwiseLeftShift: rename_func("BITSHIFTLEFT"),
             exp.BitwiseRightShift: rename_func("BITSHIFTRIGHT"),
             exp.Create: transforms.preprocess([_flatten_structured_types_unless_iceberg]),
-            exp.CurrentTimestamp: lambda self, e: self.func("SYSDATE")
-            if e.args.get("sysdate")
-            else self.function_fallback_sql(e),
+            exp.CurrentTimestamp: lambda self, e: (
+                self.func("SYSDATE") if e.args.get("sysdate") else self.function_fallback_sql(e)
+            ),
             exp.CurrentSchemas: lambda self, e: self.func("CURRENT_SCHEMAS"),
-            exp.Localtime: lambda self, e: self.func("CURRENT_TIME", e.this)
-            if e.this
-            else "CURRENT_TIME",
-            exp.Localtimestamp: lambda self, e: self.func("CURRENT_TIMESTAMP", e.this)
-            if e.this
-            else "CURRENT_TIMESTAMP",
+            exp.Localtime: lambda self, e: (
+                self.func("CURRENT_TIME", e.this) if e.this else "CURRENT_TIME"
+            ),
+            exp.Localtimestamp: lambda self, e: (
+                self.func("CURRENT_TIMESTAMP", e.this) if e.this else "CURRENT_TIMESTAMP"
+            ),
             exp.DateAdd: date_delta_sql("DATEADD"),
             exp.DateDiff: date_delta_sql("DATEDIFF"),
             exp.DatetimeAdd: date_delta_sql("TIMESTAMPADD"),
@@ -641,8 +647,9 @@ class Snowflake(Dialect):
             ),
             exp.CosineDistance: rename_func("VECTOR_COSINE_SIMILARITY"),
             exp.EuclideanDistance: rename_func("VECTOR_L2_DISTANCE"),
-            exp.FileFormatProperty: lambda self,
-            e: f"FILE_FORMAT=({self.expressions(e, 'expressions', sep=' ')})",
+            exp.FileFormatProperty: lambda self, e: (
+                f"FILE_FORMAT=({self.expressions(e, 'expressions', sep=' ')})"
+            ),
             exp.FromTimeZone: lambda self, e: self.func(
                 "CONVERT_TIMEZONE", e.args.get("zone"), "'UTC'", e.this
             ),
@@ -725,7 +732,6 @@ class Snowflake(Dialect):
             exp.MD5NumberLower64: rename_func("MD5_NUMBER_LOWER64"),
             exp.MD5NumberUpper64: rename_func("MD5_NUMBER_UPPER64"),
             exp.LowerHex: rename_func("TO_CHAR"),
-            exp.SortArray: rename_func("ARRAY_SORT"),
             exp.Skewness: rename_func("SKEW"),
             exp.StarMap: rename_func("OBJECT_CONSTRUCT"),
             exp.StartsWith: rename_func("STARTSWITH"),
@@ -783,6 +789,13 @@ class Snowflake(Dialect):
                 "SHA2_BINARY", e.this, e.args.get("length") or exp.Literal.number(256)
             ),
         }
+
+        def sortarray_sql(self, expression: exp.SortArray) -> str:
+            asc = expression.args.get("asc")
+            nulls_first = expression.args.get("nulls_first")
+            if asc == exp.false() and nulls_first == exp.true():
+                nulls_first = None
+            return self.func("ARRAY_SORT", expression.this, asc, nulls_first)
 
         def nthvalue_sql(self, expression: exp.NthValue) -> str:
             result = self.func("NTH_VALUE", expression.this, expression.args.get("offset"))
@@ -1011,9 +1024,15 @@ class Snowflake(Dialect):
             return f"SHOW {terse}{expression.name}{history}{like}{scope_kind}{scope}{starts_with}{limit}{from_}{privileges}"
 
         def describe_sql(self, expression: exp.Describe) -> str:
-            # Default to table if kind is unknown
             kind_value = expression.args.get("kind") or "TABLE"
-            kind = f" {kind_value}" if kind_value else ""
+
+            properties = expression.args.get("properties")
+            if properties:
+                qualifier = self.expressions(properties, sep=" ")
+                kind = f" {qualifier} {kind_value}"
+            else:
+                kind = f" {kind_value}"
+
             this = f" {self.sql(expression, 'this')}"
             expressions = self.expressions(expression, flat=True)
             expressions = f" {expressions}" if expressions else ""

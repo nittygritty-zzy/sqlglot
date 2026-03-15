@@ -834,7 +834,7 @@ class TestDuckDB(Validator):
         self.validate_identity("REGEXP_REPLACE(this, pattern, replacement, 'g')")
         self.validate_identity("REGEXP_REPLACE(this, pattern, replacement, 'gi')")
         self.validate_identity("REGEXP_REPLACE(this, pattern, replacement, 'ims')")
-
+        self.validate_identity("SELECT SPLIT_PART('11.22.33', '.', 1)")
         self.validate_identity(
             "SELECT NTH_VALUE(is_deleted, 2) OVER (PARTITION BY id) AS nth_is_deleted FROM my_table"
         )
@@ -979,12 +979,21 @@ class TestDuckDB(Validator):
         self.validate_all(
             "LIST_SORT(x)",
             write={
-                "duckdb": "ARRAY_SORT(x)",
+                "duckdb": "LIST_SORT(x)",
                 "presto": "ARRAY_SORT(x)",
                 "hive": "SORT_ARRAY(x)",
                 "spark": "SORT_ARRAY(x)",
             },
         )
+        self.validate_identity("SELECT LIST_SORT(x, 'ASC')")
+        self.validate_identity("SELECT LIST_SORT(x, 'DESC')")
+        self.validate_identity("SELECT LIST_SORT(x, 'ASC', 'NULLS FIRST')")
+        self.validate_identity("SELECT LIST_SORT(x, 'ASC', 'NULLS LAST')")
+        self.validate_identity("SELECT LIST_SORT(x, 'DESC', 'NULLS FIRST')")
+        self.validate_identity("SELECT LIST_SORT(x, 'DESC', 'NULLS LAST')")
+        self.validate_identity("SELECT LIST_SORT(x, 'DE' || 'SC')")
+        self.validate_identity("SELECT LIST_SORT(x, 'DESC', 'NULLS' || ' FIRST')")
+        self.validate_identity("SELECT LIST_SORT(x, 'DE' || 'SC', 'NULLS' || ' FIRST')")
         self.validate_all(
             "SELECT fname, lname, age FROM person ORDER BY age DESC NULLS FIRST, fname ASC NULLS LAST, lname",
             write={
@@ -2662,4 +2671,12 @@ class TestDuckDB(Validator):
                 dialect="snowflake",
             ).sql("duckdb"),
             "SELECT MAP_CONCAT(my_map, MAP {'key': 42}) FROM my_table",
+        )
+
+        self.validate_all(
+            "SELECT TO_VARIANT('1')",
+            write={
+                "duckdb": "SELECT CAST('1' AS VARIANT)",
+                "snowflake": "SELECT TO_VARIANT('1')",
+            },
         )

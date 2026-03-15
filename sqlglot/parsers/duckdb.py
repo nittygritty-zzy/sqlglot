@@ -3,6 +3,7 @@ from __future__ import annotations
 import typing as t
 
 from sqlglot import exp, parser
+from sqlglot.trie import new_trie
 from sqlglot.dialects.dialect import (
     binary_from_function,
     build_default_decimal_type,
@@ -11,7 +12,7 @@ from sqlglot.dialects.dialect import (
     date_trunc_to_time,
     pivot_column_names,
 )
-from sqlglot.helper import mypyc_attr, seq_get
+from sqlglot.helper import seq_get
 from sqlglot.parser import binary_range_parser
 from sqlglot.tokens import TokenType
 
@@ -57,16 +58,23 @@ def _build_make_timestamp(args: t.List) -> exp.Expr:
     )
 
 
-def _show_parser(*args: t.Any, **kwargs: t.Any) -> t.Callable[[Parser], exp.Show]:
-    def _parse(self: Parser) -> exp.Show:
+def _show_parser(*args: t.Any, **kwargs: t.Any) -> t.Callable[[DuckDBParser], exp.Show]:
+    def _parse(self: DuckDBParser) -> exp.Show:
         return self._parse_show_duckdb(*args, **kwargs)
 
     return _parse
 
 
-@mypyc_attr(allow_interpreted_subclasses=True)
-class Parser(parser.Parser):
+class DuckDBParser(parser.Parser):
     MAP_KEYS_ARE_ARBITRARY_EXPRESSIONS = True
+
+    NO_PAREN_FUNCTIONS = {
+        **parser.Parser.NO_PAREN_FUNCTIONS,
+        TokenType.LOCALTIME: exp.Localtime,
+        TokenType.LOCALTIMESTAMP: exp.Localtimestamp,
+        TokenType.CURRENT_CATALOG: exp.CurrentCatalog,
+        TokenType.SESSION_USER: exp.SessionUser,
+    }
 
     BITWISE = {k: v for k, v in parser.Parser.BITWISE.items() if k != TokenType.CARET}
 
@@ -184,15 +192,10 @@ class Parser(parser.Parser):
         "@": lambda self: exp.Abs(this=self._parse_bitwise()),
     }
 
-    TABLE_ALIAS_TOKENS = parser.Parser.TABLE_ALIAS_TOKENS - {
-        TokenType.SEMI,
-        TokenType.ANTI,
-    }
-
     PLACEHOLDER_PARSERS = {
         **parser.Parser.PLACEHOLDER_PARSERS,
         TokenType.PARAMETER: lambda self: (
-            self.expression(exp.Placeholder, this=self._prev.text)
+            self.expression(exp.Placeholder(this=self._prev.text))
             if self._match(TokenType.NUMBER) or self._match_set(self.ID_VAR_TOKENS)
             else None
         ),
@@ -219,6 +222,9 @@ class Parser(parser.Parser):
         "VARIABLE": lambda self: self._parse_set_item_assignment("VARIABLE"),
     }
 
+    SHOW_TRIE = new_trie(key.split(" ") for key in SHOW_PARSERS)
+    SET_TRIE = new_trie(key.split(" ") for key in SET_PARSERS)
+
     def _parse_lambda(self, alias: bool = False) -> t.Optional[exp.Expr]:
         index = self._index
         if not self._match_text_seq("LAMBDA"):
@@ -230,21 +236,21 @@ class Parser(parser.Parser):
             return None
 
         this = self._replace_lambda(self._parse_assignment(), expressions)
-        return self.expression(exp.Lambda, this=this, expressions=expressions, colon=True)
+        return self.expression(exp.Lambda(this=this, expressions=expressions, colon=True))
 
     def _parse_expression(self) -> t.Optional[exp.Expr]:
         # DuckDB supports prefix aliases, e.g. foo: 1
-        if self._next and self._next.token_type == TokenType.COLON:
+        if self._next.token_type == TokenType.COLON:
             alias = self._parse_id_var(tokens=self.ALIAS_TOKENS)
             self._match(TokenType.COLON)
-            comments = self._prev_comments or []
+            comments = self._prev_comments
 
             this = self._parse_assignment()
             if isinstance(this, exp.Expr):
                 # Moves the comment next to the alias in `alias: expr /* comment */`
                 comments += this.pop_comments() or []
 
-            return self.expression(exp.Alias, comments=comments, this=this, alias=alias)
+            return self.expression(exp.Alias(this=this, alias=alias), comments=comments)
 
         return super()._parse_expression()
 
@@ -259,10 +265,10 @@ class Parser(parser.Parser):
         consume_pipe: bool = False,
     ) -> t.Optional[exp.Expr]:
         # DuckDB supports prefix aliases, e.g. FROM foo: bar
-        if self._next and self._next.token_type == TokenType.COLON:
+        if self._next.token_type == TokenType.COLON:
             alias = self._parse_table_alias(alias_tokens=alias_tokens or self.TABLE_ALIAS_TOKENS)
             self._match(TokenType.COLON)
-            comments = self._prev_comments or []
+            comments = self._prev_comments
         else:
             alias = None
             comments = []
@@ -305,10 +311,10 @@ class Parser(parser.Parser):
 
     def _parse_map(self) -> exp.ToMap | exp.Map:
         if self._match(TokenType.L_BRACE, advance=False):
-            return self.expression(exp.ToMap, this=self._parse_bracket())
+            return self.expression(exp.ToMap(this=self._parse_bracket()))
 
         args = self._parse_wrapped_csv(self._parse_assignment)
-        return self.expression(exp.Map, keys=seq_get(args, 0), values=seq_get(args, 1))
+        return self.expression(exp.Map(keys=seq_get(args, 0), values=seq_get(args, 1)))
 
     def _parse_struct_types(self, type_required: bool = False) -> t.Optional[exp.Expr]:
         return self._parse_field_def()
@@ -321,9 +327,10 @@ class Parser(parser.Parser):
     def _parse_attach_detach(self, is_attach: bool = True) -> exp.Attach | exp.Detach:
         def _parse_attach_option() -> exp.AttachOption:
             return self.expression(
-                exp.AttachOption,
-                this=self._parse_var(any_token=True),
-                expression=self._parse_field(any_token=True),
+                exp.AttachOption(
+                    this=self._parse_var(any_token=True),
+                    expression=self._parse_field(any_token=True),
+                )
             )
 
         self._match(TokenType.DATABASE)
@@ -336,13 +343,13 @@ class Parser(parser.Parser):
             expressions = None
 
         return (
-            self.expression(exp.Attach, this=this, exists=exists, expressions=expressions)
+            self.expression(exp.Attach(this=this, exists=exists, expressions=expressions))
             if is_attach
-            else self.expression(exp.Detach, this=this, exists=exists)
+            else self.expression(exp.Detach(this=this, exists=exists))
         )
 
     def _parse_show_duckdb(self, this: str) -> exp.Show:
-        return self.expression(exp.Show, this=this)
+        return self.expression(exp.Show(this=this))
 
     def _parse_force(self) -> exp.Install | exp.Command:
         # FORCE can only be followed by INSTALL or CHECKPOINT
@@ -354,10 +361,11 @@ class Parser(parser.Parser):
 
     def _parse_install(self, force: bool = False) -> exp.Install:
         return self.expression(
-            exp.Install,
-            this=self._parse_id_var(),
-            from_=self._parse_var_or_string() if self._match(TokenType.FROM) else None,
-            force=force,
+            exp.Install(
+                this=self._parse_id_var(),
+                from_=self._parse_var_or_string() if self._match(TokenType.FROM) else None,
+                force=force,
+            )
         )
 
     def _parse_primary(self) -> t.Optional[exp.Expr]:

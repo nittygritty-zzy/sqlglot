@@ -134,6 +134,7 @@ class TestSnowflake(Validator):
         self.validate_identity("SELECT BOOLOR(1, 0)")
         self.validate_identity("SELECT TO_BOOLEAN('true')")
         self.validate_identity("SELECT TO_BOOLEAN(1)")
+        self.validate_identity("SELECT TO_VARIANT(123)")
         self.validate_identity("SELECT IS_NULL_VALUE(GET_PATH(payload, 'field'))")
         self.validate_identity("SELECT RTRIMMED_LENGTH(' ABCD ')")
         self.validate_identity("SELECT HEX_DECODE_STRING('48656C6C6F')")
@@ -218,7 +219,13 @@ class TestSnowflake(Validator):
         self.validate_identity("SELECT TRANSLATE(column_name, 'abc', '123')")
         self.validate_identity("SELECT UNICODE(column_name)")
         self.validate_identity("SELECT WIDTH_BUCKET(col, 0, 100, 10)")
-        self.validate_identity("SELECT SPLIT_PART('11.22.33', '.', 1)")
+        self.validate_all(
+            "SELECT SPLIT_PART('11.22.33', '.', 2)",
+            write={
+                "snowflake": "SELECT SPLIT_PART('11.22.33', '.', 2)",
+                "duckdb": "SELECT CASE WHEN '.' = '' THEN (CASE WHEN (CASE WHEN 2 = 0 THEN 1 ELSE 2 END) = 1 OR (CASE WHEN 2 = 0 THEN 1 ELSE 2 END) = -1 THEN '11.22.33' ELSE '' END) ELSE SPLIT_PART('11.22.33', '.', (CASE WHEN 2 = 0 THEN 1 ELSE 2 END)) END",
+            },
+        )
         self.validate_all(
             "SELECT SPLIT('127.0.0.1', '.')",
             write={
@@ -688,6 +695,30 @@ class TestSnowflake(Validator):
         self.validate_identity("SELECT GET_PATH(foo, 'bar')")
         self.validate_identity("SELECT a, exclude, b FROM xxx")
         self.validate_identity("SELECT ARRAY_SORT(x, TRUE, FALSE)")
+        self.validate_all(
+            "SELECT ARRAY_SORT(x)",
+            read={"snowflake": "SELECT ARRAY_SORT(x)"},
+            write={
+                "duckdb": "SELECT LIST_SORT(x)",
+                "snowflake": "SELECT ARRAY_SORT(x)",
+            },
+        )
+        self.validate_all(
+            "SELECT ARRAY_SORT(x, FALSE)",
+            read={"snowflake": "SELECT ARRAY_SORT(x, FALSE)"},
+            write={
+                "duckdb": "SELECT LIST_SORT(x, 'DESC', 'NULLS FIRST')",
+                "snowflake": "SELECT ARRAY_SORT(x, FALSE)",
+            },
+        )
+        self.validate_all(
+            "SELECT ARRAY_SORT(x, foo, TRUE)",
+            read={"snowflake": "SELECT ARRAY_SORT(x, foo, TRUE)"},
+            write={
+                "duckdb": "SELECT LIST_SORT(x, foo, 'NULLS FIRST')",
+                "snowflake": "SELECT ARRAY_SORT(x, foo, TRUE)",
+            },
+        )
         self.validate_identity("SELECT BOOLXOR_AGG(col) FROM tbl")
         self.validate_identity(
             "SELECT PERCENTILE_DISC(0.9) WITHIN GROUP (ORDER BY col) OVER (PARTITION BY category)"
@@ -772,6 +803,10 @@ class TestSnowflake(Validator):
             "CAST(x AS GEOMETRY)",
             "TO_GEOMETRY(x)",
         )
+        self.validate_identity("TO_GEOGRAPHY(x)")
+        self.validate_identity("TO_GEOMETRY(x)")
+        self.validate_identity("TO_GEOGRAPHY(x, y)")
+        self.validate_identity("TO_GEOMETRY(x, y)")
         self.validate_identity(
             "transform(x, a int -> a + a + 1)",
             "TRANSFORM(x, a -> CAST(a AS INT) + CAST(a AS INT) + 1)",
@@ -4490,6 +4525,47 @@ FROM persons AS p, LATERAL FLATTEN(input => p.c, path => 'contact') AS _flattene
                 "spark": "DESCRIBE db.table",
             },
         )
+
+        for kind, object_name, prop_type in (
+            ("DYNAMIC TABLE", "db.schema.t1", exp.DynamicProperty),
+            ("MATERIALIZED VIEW", "my_view", exp.MaterializedProperty),
+            ("EXTERNAL VOLUME", "vol1", exp.ExternalProperty),
+            ("COMPUTE POOL", "pool1", exp.ComputeProperty),
+            ("MASKING POLICY", "db.schema.pol1", exp.MaskingProperty),
+            ("ROW ACCESS POLICY", "pol1", exp.RowAccessProperty),
+            ("API INTEGRATION", "int1", exp.ApiProperty),
+            ("APPLICATION PACKAGE", "pkg1", exp.ApplicationProperty),
+            ("SECURITY INTEGRATION", "int1", exp.SecurityIntegrationProperty),
+            ("NETWORK RULE", "rule1", exp.NetworkProperty),
+            ("ICEBERG TABLE", "db.schema.t1", exp.IcebergProperty),
+            ("HYBRID TABLE", "t1", exp.HybridProperty),
+            ("CATALOG INTEGRATION", "int1", exp.CatalogProperty),
+            ("DATABASE ROLE", "role1", exp.DatabaseProperty),
+        ):
+            with self.subTest(kind=kind):
+                ast = self.validate_identity(f"DESCRIBE {kind} {object_name}")
+                self.assertEqual(ast.args["kind"], kind.split()[-1])
+                self.assertIsInstance(ast.find(prop_type), prop_type)
+                self.validate_identity(
+                    f"DESC {kind} {object_name}", f"DESCRIBE {kind} {object_name}"
+                )
+
+        # Verify keyword tokens used by DESCRIBE work as identifiers and aliases
+        from sqlglot import parser
+        from sqlglot.parsers.snowflake import SnowflakeParser
+
+        tokens = {t.name.lower() for t in SnowflakeParser.CREATABLES - parser.Parser.CREATABLES}
+        tokens |= {k.lower() for k in SnowflakeParser.DESCRIBE_QUALIFIER_PARSERS}
+        tokens -= {"row"}  # ROW is not a valid identifier in Snowflake
+
+        for token in sorted(tokens):
+            with self.subTest(token=token):
+                self.validate_identity(f"SELECT {token} FROM t")
+                self.validate_identity(f"SELECT 1 AS {token}")
+
+        cols = ", ".join(f"{t} VARCHAR" for t in sorted(tokens))
+        self.validate_identity(f"CREATE TABLE t ({cols})")
+
         self.validate_all(
             "ENDSWITH('abc', 'c')",
             read={
@@ -5335,6 +5411,70 @@ SINGLE = TRUE""",
         self.validate_identity("SELECT $1:a.b", "SELECT GET_PATH($1, 'a.b')")
         self.validate_identity("SELECT t.$23:a.b", "SELECT GET_PATH(t.$23, 'a.b')")
         self.validate_identity("SELECT t.$17:a[0].b[0].c", "SELECT GET_PATH(t.$17, 'a[0].b[0].c')")
+
+        self.validate_all(
+            """WITH t AS (SELECT PARSE_JSON('{"a": [1, 2]}') AS v), s AS (SELECT 1 AS x) SELECT t.v:a[s.x] FROM t, s""",
+            write={
+                "snowflake": """WITH t AS (SELECT PARSE_JSON('{"a": [1, 2]}') AS v), s AS (SELECT 1 AS x) SELECT GET_PATH(t.v, 'a')[s.x] FROM t, s""",
+                "duckdb": """WITH t AS (SELECT JSON('{"a": [1, 2]}') AS v), s AS (SELECT 1 AS x) SELECT (t.v -> '$.a')[s.x] FROM t, s""",
+            },
+        )
+        self.validate_all(
+            """WITH t AS (SELECT PARSE_JSON('{"c": [{"r": 1}]}') AS v), s AS (SELECT 0 AS x) SELECT t.v:c[s.x]:r FROM t, s""",
+            write={
+                "snowflake": """WITH t AS (SELECT PARSE_JSON('{"c": [{"r": 1}]}') AS v), s AS (SELECT 0 AS x) SELECT GET_PATH(GET_PATH(t.v, 'c')[s.x], 'r') FROM t, s""",
+                "duckdb": """WITH t AS (SELECT JSON('{"c": [{"r": 1}]}') AS v), s AS (SELECT 0 AS x) SELECT (t.v -> '$.c')[s.x] -> '$.r' FROM t, s""",
+            },
+        )
+        self.validate_all(
+            """WITH t AS (SELECT PARSE_JSON('{"c": [{"r": {"d": 1}}]}') AS v), s AS (SELECT 0 AS x) SELECT t.v:c[s.x]:r:d::varchar FROM t, s""",
+            write={
+                "snowflake": """WITH t AS (SELECT PARSE_JSON('{"c": [{"r": {"d": 1}}]}') AS v), s AS (SELECT 0 AS x) SELECT CAST(GET_PATH(GET_PATH(t.v, 'c')[s.x], 'r.d') AS VARCHAR) FROM t, s""",
+                "duckdb": """WITH t AS (SELECT JSON('{"c": [{"r": {"d": 1}}]}') AS v), s AS (SELECT 0 AS x) SELECT CAST((t.v -> '$.c')[s.x] -> '$.r.d' AS TEXT) FROM t, s""",
+            },
+        )
+        self.validate_all(
+            """WITH t AS (SELECT PARSE_JSON('{"a": {"b": [1, 2]}}') AS v), s AS (SELECT 1 AS x) SELECT t.v:a:b[s.x] FROM t, s""",
+            write={
+                "snowflake": """WITH t AS (SELECT PARSE_JSON('{"a": {"b": [1, 2]}}') AS v), s AS (SELECT 1 AS x) SELECT GET_PATH(t.v, 'a.b')[s.x] FROM t, s""",
+                "duckdb": """WITH t AS (SELECT JSON('{"a": {"b": [1, 2]}}') AS v), s AS (SELECT 1 AS x) SELECT (t.v -> '$.a.b')[s.x] FROM t, s""",
+            },
+        )
+        self.validate_all(
+            """WITH t AS (SELECT PARSE_JSON('{"c": [{"r": 1}]}') AS v), s AS (SELECT 0 AS x) SELECT t.v:c[s.x].r FROM t, s""",
+            write={
+                "snowflake": """WITH t AS (SELECT PARSE_JSON('{"c": [{"r": 1}]}') AS v), s AS (SELECT 0 AS x) SELECT GET_PATH(GET_PATH(t.v, 'c')[s.x], 'r') FROM t, s""",
+                "duckdb": """WITH t AS (SELECT JSON('{"c": [{"r": 1}]}') AS v), s AS (SELECT 0 AS x) SELECT (t.v -> '$.c')[s.x] -> '$.r' FROM t, s""",
+            },
+        )
+        self.validate_all(
+            """WITH t AS (SELECT PARSE_JSON('{"c": [{"r": {"d": 1}}]}') AS v), s AS (SELECT 0 AS x) SELECT t.v:c[s.x].r.d FROM t, s""",
+            write={
+                "snowflake": """WITH t AS (SELECT PARSE_JSON('{"c": [{"r": {"d": 1}}]}') AS v), s AS (SELECT 0 AS x) SELECT GET_PATH(GET_PATH(t.v, 'c')[s.x], 'r.d') FROM t, s""",
+                "duckdb": """WITH t AS (SELECT JSON('{"c": [{"r": {"d": 1}}]}') AS v), s AS (SELECT 0 AS x) SELECT (t.v -> '$.c')[s.x] -> '$.r.d' FROM t, s""",
+            },
+        )
+        self.validate_all(
+            """WITH t AS (SELECT PARSE_JSON('{"c": [{"r": {"d": {"e": 1}}}]}') AS v), s AS (SELECT 0 AS x) SELECT t.v:c[s.x].r.d.e FROM t, s""",
+            write={
+                "snowflake": """WITH t AS (SELECT PARSE_JSON('{"c": [{"r": {"d": {"e": 1}}}]}') AS v), s AS (SELECT 0 AS x) SELECT GET_PATH(GET_PATH(t.v, 'c')[s.x], 'r.d.e') FROM t, s""",
+                "duckdb": """WITH t AS (SELECT JSON('{"c": [{"r": {"d": {"e": 1}}}]}') AS v), s AS (SELECT 0 AS x) SELECT (t.v -> '$.c')[s.x] -> '$.r.d.e' FROM t, s""",
+            },
+        )
+        self.validate_all(
+            """WITH t AS (SELECT PARSE_JSON('{"a": {"b": [{"r": {"d": 1}}]}}') AS v), s AS (SELECT 0 AS x) SELECT t.v:a.b[s.x].r.d FROM t, s""",
+            write={
+                "snowflake": """WITH t AS (SELECT PARSE_JSON('{"a": {"b": [{"r": {"d": 1}}]}}') AS v), s AS (SELECT 0 AS x) SELECT GET_PATH(GET_PATH(t.v, 'a.b')[s.x], 'r.d') FROM t, s""",
+                "duckdb": """WITH t AS (SELECT JSON('{"a": {"b": [{"r": {"d": 1}}]}}') AS v), s AS (SELECT 0 AS x) SELECT (t.v -> '$.a.b')[s.x] -> '$.r.d' FROM t, s""",
+            },
+        )
+        self.validate_all(
+            """WITH t AS (SELECT PARSE_JSON('{"a": {"b": [{"r": {"d": [10, 20, 30]}}]}}') AS v), s AS (SELECT 0 AS x, 2 AS y) SELECT t.v:a.b[s.x].r.d[s.y] FROM t, s""",
+            write={
+                "snowflake": """WITH t AS (SELECT PARSE_JSON('{"a": {"b": [{"r": {"d": [10, 20, 30]}}]}}') AS v), s AS (SELECT 0 AS x, 2 AS y) SELECT GET_PATH(GET_PATH(t.v, 'a.b')[s.x], 'r.d')[s.y] FROM t, s""",
+                "duckdb": """WITH t AS (SELECT JSON('{"a": {"b": [{"r": {"d": [10, 20, 30]}}]}}') AS v), s AS (SELECT 0 AS x, 2 AS y) SELECT ((t.v -> '$.a.b')[s.x] -> '$.r.d')[s.y] FROM t, s""",
+            },
+        )
 
         self.validate_all(
             """

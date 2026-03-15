@@ -3,6 +3,7 @@ from __future__ import annotations
 import typing as t
 
 from sqlglot import exp, parser
+from sqlglot.trie import new_trie
 from sqlglot.dialects.dialect import (
     Dialect,
     build_default_decimal_type,
@@ -15,7 +16,7 @@ from sqlglot.dialects.dialect import (
     date_trunc_to_time,
     map_date_part,
 )
-from sqlglot.helper import is_date_unit, is_int, mypyc_attr, seq_get
+from sqlglot.helper import is_date_unit, is_int, seq_get
 from sqlglot.tokens import TokenType
 
 if t.TYPE_CHECKING:
@@ -276,6 +277,14 @@ def _build_round(args: t.List) -> exp.Round:
     return expression
 
 
+def _build_array_sort(args: t.List) -> exp.SortArray:
+    asc = seq_get(args, 1)
+    nulls_first = seq_get(args, 2)
+    if nulls_first is None and isinstance(asc, exp.Boolean):
+        nulls_first = exp.Boolean(this=not asc.this)
+    return exp.SortArray(this=seq_get(args, 0), asc=asc, nulls_first=nulls_first)
+
+
 def _build_generator(args: t.List) -> exp.Generator:
     """
     Build Generator expression, unwrapping Snowflake's named parameters.
@@ -309,15 +318,14 @@ def _build_try_to_number(args: t.List[exp.Expr]) -> exp.Expr:
     )
 
 
-def _show_parser(*args: t.Any, **kwargs: t.Any) -> t.Callable[[Parser], exp.Show]:
-    def _parse(self: Parser) -> exp.Show:
+def _show_parser(*args: t.Any, **kwargs: t.Any) -> t.Callable[[SnowflakeParser], exp.Show]:
+    def _parse(self: SnowflakeParser) -> exp.Show:
         return self._parse_show_snowflake(*args, **kwargs)
 
     return _parse
 
 
-@mypyc_attr(allow_interpreted_subclasses=True)
-class Parser(parser.Parser):
+class SnowflakeParser(parser.Parser):
     IDENTIFY_PIVOT_STRINGS = True
     DEFAULT_SAMPLING_METHOD = "BERNOULLI"
     COLON_IS_VARIANT_EXTRACT = True
@@ -330,17 +338,48 @@ class Parser(parser.Parser):
     ID_VAR_TOKENS = {
         *parser.Parser.ID_VAR_TOKENS,
         TokenType.EXCEPT,
+        TokenType.INTEGRATION,
         TokenType.MATCH_CONDITION,
+        TokenType.PACKAGE,
+        TokenType.POLICY,
+        TokenType.POOL,
+        TokenType.ROLE,
+        TokenType.RULE,
+        TokenType.VOLUME,
     }
 
-    TABLE_ALIAS_TOKENS = (parser.Parser.TABLE_ALIAS_TOKENS | {TokenType.WINDOW}) - {
-        TokenType.MATCH_CONDITION
+    ALIAS_TOKENS = parser.Parser.ALIAS_TOKENS | {
+        TokenType.INTEGRATION,
+        TokenType.PACKAGE,
+        TokenType.POLICY,
+        TokenType.POOL,
+        TokenType.ROLE,
+        TokenType.RULE,
+        TokenType.VOLUME,
     }
+
+    TABLE_ALIAS_TOKENS = (
+        parser.Parser.TABLE_ALIAS_TOKENS
+        | {
+            TokenType.ANTI,
+            TokenType.INTEGRATION,
+            TokenType.PACKAGE,
+            TokenType.POLICY,
+            TokenType.POOL,
+            TokenType.ROLE,
+            TokenType.RULE,
+            TokenType.SEMI,
+            TokenType.VOLUME,
+            TokenType.WINDOW,
+        }
+    ) - {TokenType.MATCH_CONDITION}
 
     COLON_PLACEHOLDER_TOKENS = ID_VAR_TOKENS | {TokenType.NUMBER}
 
     NO_PAREN_FUNCTIONS = {
         **parser.Parser.NO_PAREN_FUNCTIONS,
+        TokenType.LOCALTIME: exp.Localtime,
+        TokenType.LOCALTIMESTAMP: exp.Localtimestamp,
         TokenType.CURRENT_TIME: exp.Localtime,
     }
 
@@ -392,7 +431,7 @@ class Parser(parser.Parser):
             end=seq_get(args, 2),
             zero_based=True,
         ),
-        "ARRAY_SORT": exp.SortArray.from_arg_list,
+        "ARRAY_SORT": _build_array_sort,
         "ARRAY_FLATTEN": exp.Flatten.from_arg_list,
         "ARRAYS_OVERLAP": lambda args: exp.ArrayOverlaps(
             this=seq_get(args, 0), expression=seq_get(args, 1), null_safe=True
@@ -620,6 +659,16 @@ class Parser(parser.Parser):
         "TO_TIMESTAMP_LTZ": _build_datetime("TO_TIMESTAMP_LTZ", exp.DType.TIMESTAMPLTZ),
         "TO_TIMESTAMP_NTZ": _build_datetime("TO_TIMESTAMP_NTZ", exp.DType.TIMESTAMPNTZ),
         "TO_TIMESTAMP_TZ": _build_datetime("TO_TIMESTAMP_TZ", exp.DType.TIMESTAMPTZ),
+        "TO_GEOGRAPHY": lambda args: (
+            exp.cast(args[0], exp.DType.GEOGRAPHY)
+            if len(args) == 1
+            else exp.Anonymous(this="TO_GEOGRAPHY", expressions=args)
+        ),
+        "TO_GEOMETRY": lambda args: (
+            exp.cast(args[0], exp.DType.GEOMETRY)
+            if len(args) == 1
+            else exp.Anonymous(this="TO_GEOMETRY", expressions=args)
+        ),
         "TO_VARCHAR": build_timetostr_or_tochar,
         "TO_JSON": exp.JSONFormat.from_arg_list,
         "VECTOR_COSINE_SIMILARITY": exp.CosineDistance.from_arg_list,
@@ -631,6 +680,13 @@ class Parser(parser.Parser):
         "ILIKE": build_like(exp.ILike),
         "SEARCH": _build_search,
         "SKEW": exp.Skewness.from_arg_list,
+        "SPLIT_PART": lambda args: exp.SplitPart(
+            this=seq_get(args, 0),
+            delimiter=seq_get(args, 1),
+            part_index=seq_get(args, 2),
+            part_index_zero_as_one=True,
+            empty_delimiter_returns_whole=True,
+        ),
         "SYSTIMESTAMP": exp.CurrentTimestamp.from_arg_list,
         "WEEKISO": exp.WeekOfYear.from_arg_list,
         "WEEKOFYEAR": exp.Week.from_arg_list,
@@ -654,10 +710,11 @@ class Parser(parser.Parser):
         "MODIFY": lambda self: self._parse_alter_table_alter(),
         "SESSION": lambda self: self._parse_alter_session(),
         "UNSET": lambda self: self.expression(
-            exp.Set,
-            tag=self._match_text_seq("TAG"),
-            expressions=self._parse_csv(self._parse_id_var),
-            unset=True,
+            exp.Set(
+                tag=self._match_text_seq("TAG"),
+                expressions=self._parse_csv(self._parse_id_var),
+                unset=True,
+            )
         ),
     }
 
@@ -674,8 +731,37 @@ class Parser(parser.Parser):
         "FILE_FORMAT": lambda self: self._parse_file_format_property(),
         "LOCATION": lambda self: self._parse_location_property(),
         "TAG": lambda self: self._parse_tag(),
-        "USING": lambda self: self._match_text_seq("TEMPLATE")
-        and self.expression(exp.UsingTemplateProperty, this=self._parse_statement()),
+        "USING": lambda self: (
+            self._match_text_seq("TEMPLATE")
+            and self.expression(exp.UsingTemplateProperty(this=self._parse_statement()))
+        ),
+    }
+
+    DESCRIBE_QUALIFIER_PARSERS: t.ClassVar[t.Dict[str, t.Callable]] = {
+        "API": lambda self: self.expression(exp.ApiProperty()),
+        "APPLICATION": lambda self: self.expression(exp.ApplicationProperty()),
+        "CATALOG": lambda self: self.expression(exp.CatalogProperty()),
+        "COMPUTE": lambda self: self.expression(exp.ComputeProperty()),
+        "DATABASE": lambda self: (
+            self.expression(exp.DatabaseProperty())
+            if self._curr and self._curr.text.upper() == "ROLE"
+            else None
+        ),
+        "DYNAMIC": lambda self: self.expression(exp.DynamicProperty()),
+        "EXTERNAL": lambda self: self.expression(exp.ExternalProperty()),
+        "HYBRID": lambda self: self.expression(exp.HybridProperty()),
+        "ICEBERG": lambda self: self.expression(exp.IcebergProperty()),
+        "MASKING": lambda self: self.expression(exp.MaskingProperty()),
+        "MATERIALIZED": lambda self: self.expression(exp.MaterializedProperty()),
+        "NETWORK": lambda self: self.expression(exp.NetworkProperty()),
+        "ROW": lambda self: (
+            self.expression(exp.RowAccessProperty()) if self._match_text_seq("ACCESS") else None
+        ),
+        "SECURITY": lambda self: (
+            self.expression(exp.SecurityIntegrationProperty())
+            if self._curr and self._curr.text.upper() == "INTEGRATION"
+            else None
+        ),
     }
 
     TYPE_CONVERTERS = {
@@ -712,6 +798,8 @@ class Parser(parser.Parser):
         "WAREHOUSES": _show_parser("WAREHOUSES"),
     }
 
+    SHOW_TRIE = new_trie(key.split(" ") for key in SHOW_PARSERS)
+
     CONSTRAINT_PARSERS = {
         **parser.Parser.CONSTRAINT_PARSERS,
         "WITH": lambda self: self._parse_with_constraint(),
@@ -732,35 +820,73 @@ class Parser(parser.Parser):
 
     NON_TABLE_CREATABLES = {"STORAGE INTEGRATION", "TAG", "WAREHOUSE", "STREAMLIT"}
 
+    CREATABLES = {
+        *parser.Parser.CREATABLES,
+        TokenType.INTEGRATION,
+        TokenType.PACKAGE,
+        TokenType.POLICY,
+        TokenType.POOL,
+        TokenType.ROLE,
+        TokenType.RULE,
+        TokenType.VOLUME,
+    }
+
     LAMBDAS = {
         **parser.Parser.LAMBDAS,
         TokenType.ARROW: lambda self, expressions: self.expression(
-            exp.Lambda,
-            this=self._replace_lambda(
-                self._parse_assignment(),
-                expressions,
-            ),
-            expressions=[e.this if isinstance(e, exp.Cast) else e for e in expressions],
+            exp.Lambda(
+                this=self._replace_lambda(
+                    self._parse_assignment(),
+                    expressions,
+                ),
+                expressions=[e.this if isinstance(e, exp.Cast) else e for e in expressions],
+            )
         ),
     }
 
     COLUMN_OPERATORS = {
         **parser.Parser.COLUMN_OPERATORS,
         TokenType.EXCLAMATION: lambda self, this, attr: self.expression(
-            exp.ModelAttribute, this=this, expression=attr
+            exp.ModelAttribute(this=this, expression=attr)
         ),
     }
 
     def _parse_directory(self) -> exp.DirectoryStage:
         table = self._parse_table_parts()
         this: exp.Expr = table.this if isinstance(table, exp.Table) else table
-        return self.expression(exp.DirectoryStage, this=this)
+        return self.expression(exp.DirectoryStage(this=this))
+
+    def _parse_describe(self) -> exp.Describe:
+        index = self._index
+
+        if self._match_texts(self.DESCRIBE_QUALIFIER_PARSERS):
+            qualifier = self.DESCRIBE_QUALIFIER_PARSERS[self._prev.text.upper()](self)
+
+            if qualifier:
+                kind = self._match_set(self.CREATABLES) and self._prev.text.upper()
+
+                if kind:
+                    this = self._parse_table(schema=True)
+                    properties = self.expression(exp.Properties(expressions=[qualifier]))
+                    post_props = self._parse_properties()
+                    expressions = post_props.expressions if post_props else None
+                    return self.expression(
+                        exp.Describe(
+                            this=this,
+                            kind=kind,
+                            properties=properties,
+                            expressions=expressions,
+                        )
+                    )
+
+        self._retreat(index)
+        return super()._parse_describe()
 
     def _parse_use(self) -> exp.Use:
         if self._match_text_seq("SECONDARY", "ROLES"):
             this = self._match_texts(("ALL", "NONE")) and exp.var(self._prev.text.upper())
             roles = None if this else self._parse_csv(lambda: self._parse_table(schema=False))
-            return self.expression(exp.Use, kind="SECONDARY ROLES", this=this, expressions=roles)
+            return self.expression(exp.Use(kind="SECONDARY ROLES", this=this, expressions=roles))
 
         return super()._parse_use()
 
@@ -776,15 +902,12 @@ class Parser(parser.Parser):
             #
             # https://docs.snowflake.com/en/sql-reference/functions/in
             # Context: https://github.com/tobymao/sqlglot/issues/3890
-            return self.expression(exp.NEQ, this=this.this, expression=exp.All(this=query.unnest()))
+            return self.expression(exp.NEQ(this=this.this, expression=exp.All(this=query.unnest())))
 
-        return self.expression(exp.Not, this=this)
+        return self.expression(exp.Not(this=this))
 
     def _parse_tag(self) -> exp.Tags:
-        return self.expression(
-            exp.Tags,
-            expressions=self._parse_wrapped_csv(self._parse_property),
-        )
+        return self.expression(exp.Tags(expressions=self._parse_wrapped_csv(self._parse_property)))
 
     def _parse_with_constraint(self) -> t.Optional[exp.Expr]:
         if self._prev.token_type != TokenType.WITH:
@@ -793,16 +916,18 @@ class Parser(parser.Parser):
         if self._match_text_seq("MASKING", "POLICY"):
             policy = self._parse_column()
             return self.expression(
-                exp.MaskingPolicyColumnConstraint,
-                this=policy.to_dot() if isinstance(policy, exp.Column) else policy,
-                expressions=self._match(TokenType.USING)
-                and self._parse_wrapped_csv(self._parse_id_var),
+                exp.MaskingPolicyColumnConstraint(
+                    this=policy.to_dot() if isinstance(policy, exp.Column) else policy,
+                    expressions=self._match(TokenType.USING)
+                    and self._parse_wrapped_csv(self._parse_id_var),
+                )
             )
         if self._match_text_seq("PROJECTION", "POLICY"):
             policy = self._parse_column()
             return self.expression(
-                exp.ProjectionPolicyColumnConstraint,
-                this=policy.to_dot() if isinstance(policy, exp.Column) else policy,
+                exp.ProjectionPolicyColumnConstraint(
+                    this=policy.to_dot() if isinstance(policy, exp.Column) else policy
+                )
             )
         if self._match(TokenType.TAG):
             return self._parse_tag()
@@ -834,7 +959,7 @@ class Parser(parser.Parser):
         # Handle both syntaxes: DATE_PART(part, expr) and DATE_PART(part FROM expr)
         expression = self._match_set((TokenType.FROM, TokenType.COMMA)) and self._parse_bitwise()
         return self.expression(
-            exp.Extract, this=map_date_part(this, self.dialect), expression=expression
+            exp.Extract(this=map_date_part(this, self.dialect), expression=expression)
         )
 
     def _parse_bracket_key_value(self, is_map: bool = False) -> t.Optional[exp.Expr]:
@@ -889,7 +1014,7 @@ class Parser(parser.Parser):
 
                 self._match(TokenType.COMMA)
 
-            table = self.expression(exp.Table, this=table, format=file_format, pattern=pattern)
+            table = self.expression(exp.Table(this=table, format=file_format, pattern=pattern))
         else:
             table = super()._parse_table_parts(schema=schema, is_db_reference=is_db_reference)
 
@@ -933,7 +1058,7 @@ class Parser(parser.Parser):
                 super()._parse_id_var(any_token=any_token, tokens=tokens) or self._parse_string()
             )
             self._match_r_paren()
-            return self.expression(exp.Anonymous, this="IDENTIFIER", expressions=[identifier])
+            return self.expression(exp.Anonymous(this="IDENTIFIER", expressions=[identifier]))
 
         return super()._parse_id_var(any_token=any_token, tokens=tokens)
 
@@ -969,18 +1094,19 @@ class Parser(parser.Parser):
                 scope = self._parse_table_parts()
 
         return self.expression(
-            exp.Show,
-            terse=terse,
-            this=this,
-            history=history,
-            like=like,
-            scope=scope,
-            scope_kind=scope_kind,
-            starts_with=self._match_text_seq("STARTS", "WITH") and self._parse_string(),
-            limit=self._parse_limit(),
-            from_=self._parse_string() if self._match(TokenType.FROM) else None,
-            privileges=self._match_text_seq("WITH", "PRIVILEGES")
-            and self._parse_csv(lambda: self._parse_var(any_token=True, upper=True)),
+            exp.Show(
+                terse=terse,
+                this=this,
+                history=history,
+                like=like,
+                scope=scope,
+                scope_kind=scope_kind,
+                starts_with=self._match_text_seq("STARTS", "WITH") and self._parse_string(),
+                limit=self._parse_limit(),
+                from_=self._parse_string() if self._match(TokenType.FROM) else None,
+                privileges=self._match_text_seq("WITH", "PRIVILEGES")
+                and self._parse_csv(lambda: self._parse_var(any_token=True, upper=True)),
+            )
         )
 
     def _parse_put(self) -> exp.Put | exp.Command:
@@ -988,10 +1114,11 @@ class Parser(parser.Parser):
             return self._parse_as_command(self._prev)
 
         return self.expression(
-            exp.Put,
-            this=self._parse_string(),
-            target=self._parse_location_path(),
-            properties=self._parse_properties(),
+            exp.Put(
+                this=self._parse_string(),
+                target=self._parse_location_path(),
+                properties=self._parse_properties(),
+            )
         )
 
     def _parse_get(self) -> t.Optional[exp.Expr]:
@@ -1009,15 +1136,12 @@ class Parser(parser.Parser):
             return self._parse_as_command(start)
 
         return self.expression(
-            exp.Get,
-            this=self._parse_string(),
-            target=target,
-            properties=self._parse_properties(),
+            exp.Get(this=self._parse_string(), target=target, properties=self._parse_properties())
         )
 
     def _parse_location_property(self) -> exp.LocationProperty:
         self._match(TokenType.EQ)
-        return self.expression(exp.LocationProperty, this=self._parse_location_path())
+        return self.expression(exp.LocationProperty(this=self._parse_location_path()))
 
     def _parse_file_location(self) -> t.Optional[exp.Expr]:
         # Parse either a subquery or a staged file
@@ -1050,14 +1174,14 @@ class Parser(parser.Parser):
         typ = self._parse_types()
 
         if typ:
-            return self.expression(exp.Cast, this=this, to=typ)
+            return self.expression(exp.Cast(this=this, to=typ))
 
         return this
 
     def _parse_foreign_key(self) -> exp.ForeignKey:
         # inlineFK, the REFERENCES columns are implied
         if self._match(TokenType.REFERENCES, advance=False):
-            return self.expression(exp.ForeignKey)
+            return self.expression(exp.ForeignKey())
 
         # outoflineFK, explicitly names the columns
         return super()._parse_foreign_key()
@@ -1069,16 +1193,10 @@ class Parser(parser.Parser):
         else:
             expressions = [self._parse_format_name()]
 
-        return self.expression(
-            exp.FileFormatProperty,
-            expressions=expressions,
-        )
+        return self.expression(exp.FileFormatProperty(expressions=expressions))
 
     def _parse_credentials_property(self) -> exp.CredentialsProperty:
-        return self.expression(
-            exp.CredentialsProperty,
-            expressions=self._parse_wrapped_options(),
-        )
+        return self.expression(exp.CredentialsProperty(expressions=self._parse_wrapped_options()))
 
     def _parse_semantic_view(self) -> exp.SemanticView:
         kwargs: t.Dict[str, t.Any] = {"this": self._parse_table_parts()}
@@ -1095,7 +1213,7 @@ class Parser(parser.Parser):
                 self.raise_error("Expecting ) or encountered unexpected keyword")
                 break
 
-        return self.expression(exp.SemanticView, **kwargs)
+        return self.expression(exp.SemanticView(**kwargs))
 
     def _parse_set(self, unset: bool = False, tag: bool = False) -> exp.Set | exp.Command:
         set = super()._parse_set(unset=unset, tag=tag)
